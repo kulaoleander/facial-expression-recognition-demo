@@ -14,14 +14,15 @@ __pycache__/
 # Environment variables
 .env
 
-# Data files
+# Raw and processed datasets
 data/raw/
 data/processed/
 *.csv
 *.zip
 
 # Model and output files
-outputs/
+outputs/*
+!outputs/README.md
 *.pth
 *.pt
 *.pkl
