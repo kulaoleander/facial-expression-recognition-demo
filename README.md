@@ -1,39 +1,90 @@
 # Facial Expression Recognition Demo
 
-This is a deep learning and computer vision project for facial expression recognition.
+This project is a beginner-friendly deep learning and computer vision demo for facial expression recognition.
 
-The goal of this project is to build a simple but complete AI demo that can:
-
-- load and preprocess facial expression image data
-- train a baseline CNN model
-- evaluate model performance
-- predict emotion from a single image
-- provide a simple Streamlit web demo
-- include basic pytest tests for reliability
+The goal is to build a complete AI project pipeline, including data preparation, CNN model training, model evaluation, single image prediction, a simple web demo, and basic automated tests.
 
 ## Project Goal
 
-This project is designed as a portfolio project for AI, computer vision, and Python development roles.
+The final goal is to create a working facial expression recognition demo that can:
 
-It focuses on building a complete and explainable AI workflow instead of only chasing high model accuracy.
+* Load facial expression image data
+* Train a simple CNN baseline model
+* Evaluate model performance
+* Predict the emotion of a single image
+* Provide a simple Streamlit demo interface
+* Include basic pytest tests
+* Be explained clearly in a CV, GitHub profile, and interview
 
-## Planned Workflow
+## Why This Project Matters
+
+This project connects several important areas:
+
+* Deep Learning
+* Computer Vision
+* Python Engineering
+* AI Application Development
+* AI Testing / QA mindset
+
+It is designed as a practical portfolio project rather than a pure theory exercise.
+
+## Project Structure
 
 ```text
-Data preparation
+facial-expression-recognition-demo/
+├── app/              # Streamlit demo application
+├── data/             # Dataset instructions and local data folders
+├── notebooks/        # Optional exploration notebooks
+├── outputs/          # Training outputs, figures, and saved models
+├── src/              # Main source code
+├── tests/            # Automated tests
+├── .gitignore
+├── README.md
+└── requirements.txt
+```
+
+## Current Stage
+
+Project setup and folder structure initialization.
+
+## Planned Pipeline
+
+```text
+Prepare project structure
 ↓
-Dataset and DataLoader
+Install dependencies
 ↓
-CNN baseline model
+Understand the dataset
 ↓
-Training
+Build data loading pipeline
 ↓
-Evaluation
+Create CNN baseline model
 ↓
-Single image prediction
+Train the model
 ↓
-Streamlit demo
+Evaluate model performance
 ↓
-Testing
+Add single image prediction
 ↓
-GitHub documentation
+Build Streamlit demo
+↓
+Add pytest tests
+↓
+Polish README for GitHub and CV
+```
+
+## Tech Stack
+
+* Python
+* PyTorch
+* OpenCV
+* NumPy
+* Matplotlib
+* Scikit-learn
+* Streamlit
+* pytest
+* Pillow
+
+## Status
+
+In progress.
