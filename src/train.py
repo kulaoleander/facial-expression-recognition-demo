@@ -26,7 +26,7 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     total_batches = 0
 
     for images, labels in train_loader:
-        # 把数据放到指定设备上。
+        # 把数据放到指定设备上
         images = images.to(device)
         labels = labels.to(device)
 
@@ -54,50 +54,80 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     return average_loss
 
 
+def train_model(model, train_loader, test_loader, loss_fn, optimizer, device, num_epochs):
+    """
+    训练模型多个 epoch，并在每个 epoch 后评估 test accuracy。
+
+    这个函数是当前阶段的训练主控流程：
+    1. 训练一个 epoch
+    2. 在 test set 上评估 accuracy
+    3. 打印当前 epoch 的 loss 和 accuracy
+    """
+    for epoch in range(num_epochs):
+        average_loss = train_one_epoch(
+            model=model,
+            train_loader=train_loader,
+            loss_fn=loss_fn,
+            optimizer=optimizer,
+            device=device,
+        )
+
+        test_accuracy = evaluate_accuracy(
+            model=model,
+            data_loader=test_loader,
+            device=device,
+        )
+
+        print(
+            f"Epoch {epoch + 1}/{num_epochs} | "
+            f"loss: {average_loss:.4f} | "
+            f"test accuracy: {test_accuracy:.4f}"
+        )
+
+
 def main():
     """
-    最小训练 + 评估主流程。
+    多 epoch 训练 + 评估主流程。
 
-    这一步验证完整闭环：
-    DataLoader -> Model -> Loss -> Optimizer -> Train -> Evaluate
+    当前目标：
+    观察训练多个 epoch 后，loss 和 test accuracy 是否有变化。
     """
     device = torch.device("cpu")
 
-    # 创建训练集和测试集 DataLoader
-    train_loader, test_loader = create_data_loaders(batch_size=32)
+    num_epochs = 3
+    batch_size = 32
+    learning_rate = 0.001
 
-    # 创建 CNN 模型
+    train_loader, test_loader = create_data_loaders(batch_size=batch_size)
+
     model = SimpleCNN(num_classes=7).to(device)
 
-    # 多分类任务使用 CrossEntropyLoss
     loss_fn = nn.CrossEntropyLoss()
 
-    # Adam 负责根据 loss 更新模型参数
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=0.001,
+        lr=learning_rate,
     )
 
     print("Training and evaluation started")
     print("-" * 40)
     print(f"Device: {device}")
+    print(f"Epochs: {num_epochs}")
+    print(f"Batch size: {batch_size}")
+    print(f"Learning rate: {learning_rate}")
+    print("-" * 40)
 
-    average_loss = train_one_epoch(
+    train_model(
         model=model,
         train_loader=train_loader,
+        test_loader=test_loader,
         loss_fn=loss_fn,
         optimizer=optimizer,
         device=device,
+        num_epochs=num_epochs,
     )
 
-    test_accuracy = evaluate_accuracy(
-        model=model,
-        data_loader=test_loader,
-        device=device,
-    )
-
-    print(f"Average training loss: {average_loss:.4f}")
-    print(f"Test accuracy: {test_accuracy:.4f}")
+    print("-" * 40)
     print("Training and evaluation finished")
 
 

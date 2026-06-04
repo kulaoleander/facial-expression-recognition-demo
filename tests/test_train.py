@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.model import SimpleCNN
-from src.train import train_one_epoch
+from src.train import train_one_epoch, train_model
 
 
 def create_dummy_train_loader(batch_size=16):
@@ -123,3 +123,31 @@ def test_train_one_epoch_updates_model_parameters():
             break
 
     assert has_parameter_changed
+
+
+def test_train_model_runs_multiple_epochs():
+    """
+    测试 train_model 是否能完成多个 epoch 的训练流程。
+
+    这个测试不追求 accuracy 高低，
+    只验证完整流程能跑通：
+    train_one_epoch -> evaluate_accuracy -> print result
+    """
+    device = torch.device("cpu")
+
+    model = SimpleCNN(num_classes=7).to(device)
+    train_loader = create_dummy_train_loader(batch_size=16)
+    test_loader = create_dummy_train_loader(batch_size=16)
+
+    loss_fn = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    train_model(
+        model=model,
+        train_loader=train_loader,
+        test_loader=test_loader,
+        loss_fn=loss_fn,
+        optimizer=optimizer,
+        device=device,
+        num_epochs=2,
+    )
