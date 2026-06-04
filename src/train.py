@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 
 from src.data_loader import create_data_loaders
+from src.evaluate import evaluate_accuracy
 from src.model import SimpleCNN
 
 
@@ -26,7 +27,6 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
 
     for images, labels in train_loader:
         # 把数据放到指定设备上。
-        # 目前我们用 CPU，后面如果有 GPU 可以改成 cuda。
         images = images.to(device)
         labels = labels.to(device)
 
@@ -56,25 +56,29 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
 
 def main():
     """
-    最小训练主流程。
+    最小训练 + 评估主流程。
 
-    这一步只验证训练闭环：
-    DataLoader -> Model -> Loss -> Optimizer -> 1 epoch training
+    这一步验证完整闭环：
+    DataLoader -> Model -> Loss -> Optimizer -> Train -> Evaluate
     """
     device = torch.device("cpu")
 
-    train_loader, _ = create_data_loaders(batch_size=32)
+    # 创建训练集和测试集 DataLoader
+    train_loader, test_loader = create_data_loaders(batch_size=32)
 
+    # 创建 CNN 模型
     model = SimpleCNN(num_classes=7).to(device)
 
+    # 多分类任务使用 CrossEntropyLoss
     loss_fn = nn.CrossEntropyLoss()
 
+    # Adam 负责根据 loss 更新模型参数
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=0.001,
     )
 
-    print("Training started")
+    print("Training and evaluation started")
     print("-" * 40)
     print(f"Device: {device}")
 
@@ -86,8 +90,15 @@ def main():
         device=device,
     )
 
+    test_accuracy = evaluate_accuracy(
+        model=model,
+        data_loader=test_loader,
+        device=device,
+    )
+
     print(f"Average training loss: {average_loss:.4f}")
-    print("Training finished")
+    print(f"Test accuracy: {test_accuracy:.4f}")
+    print("Training and evaluation finished")
 
 
 if __name__ == "__main__":
