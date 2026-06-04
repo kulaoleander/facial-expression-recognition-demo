@@ -3,7 +3,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.model import SimpleCNN
-from src.train import train_one_epoch, train_model
+from src.train import save_model, train_model, train_one_epoch
 
 
 def create_dummy_train_loader(batch_size=16):
@@ -151,3 +151,23 @@ def test_train_model_runs_multiple_epochs():
         device=device,
         num_epochs=2,
     )
+
+
+def test_save_model_creates_model_file(tmp_path):
+    """
+    测试 save_model 是否能把模型权重保存成 .pth 文件。
+
+    tmp_path 是 pytest 提供的临时文件夹。
+    用它测试不会污染真实 outputs/models 文件夹。
+    """
+    model = SimpleCNN(num_classes=7)
+
+    model_path = tmp_path / "test_model.pth"
+
+    save_model(
+        model=model,
+        model_path=model_path,
+    )
+
+    assert model_path.exists()
+    assert model_path.stat().st_size > 0

@@ -1,9 +1,16 @@
+from pathlib import Path
+
 import torch
 import torch.nn as nn
 
 from src.data_loader import create_data_loaders
 from src.evaluate import evaluate_accuracy
 from src.model import SimpleCNN
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+MODEL_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "models"
+MODEL_OUTPUT_PATH = MODEL_OUTPUT_DIR / "simple_cnn.pth"
 
 
 def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
@@ -85,12 +92,29 @@ def train_model(model, train_loader, test_loader, loss_fn, optimizer, device, nu
         )
 
 
+def save_model(model, model_path):
+    """
+    保存模型权重到指定路径。
+
+    注意：
+    这里保存的是 model.state_dict()，也就是模型参数，
+    不是把整个模型对象直接保存下来。
+
+    这样做更常见，也更适合后面加载模型做预测。
+    """
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+
+    torch.save(model.state_dict(), model_path)
+
+
 def main():
     """
-    多 epoch 训练 + 评估主流程。
+    多 epoch 训练 + 评估 + 保存模型主流程。
 
     当前目标：
-    观察训练多个 epoch 后，loss 和 test accuracy 是否有变化。
+    1. 训练多个 epoch
+    2. 每个 epoch 后评估 test accuracy
+    3. 训练结束后保存模型权重
     """
     device = torch.device("cpu")
 
@@ -127,7 +151,13 @@ def main():
         num_epochs=num_epochs,
     )
 
+    save_model(
+        model=model,
+        model_path=MODEL_OUTPUT_PATH,
+    )
+
     print("-" * 40)
+    print(f"Model saved to: {MODEL_OUTPUT_PATH}")
     print("Training and evaluation finished")
 
 
