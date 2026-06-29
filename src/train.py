@@ -212,15 +212,17 @@ def main():
 
     当前目标：
     1. 用 train_loader 训练模型
-    2. 每个 epoch 后用 val_loader 评估 validation accuracy
-    3. 记录每个 epoch 的 train loss 和 val accuracy
-    4. 保存训练曲线图
-    5. 保存训练历史 JSON
-    6. 训练结束后保存模型权重
+    2. 训练集使用轻量 data augmentation
+    3. 每个 epoch 后用 val_loader 评估 validation accuracy
+    4. 记录每个 epoch 的 train loss 和 val accuracy
+    5. 保存训练曲线图
+    6. 保存训练历史 JSON
+    7. 训练结束后保存模型权重
 
     注意：
-    test_loader 暂时不在训练过程中使用。
-    它会留给最终评估阶段使用。
+    - augmentation 只作用于 train_loader
+    - validation loader 不使用 augmentation
+    - test_loader 暂时不在训练过程中使用
     """
     device = torch.device("cpu")
 
@@ -229,11 +231,13 @@ def main():
     learning_rate = 0.001
     validation_ratio = 0.2
     random_seed = 42
+    use_augmentation = True
 
     train_loader, val_loader, _ = create_train_val_test_loaders(
         batch_size=batch_size,
         validation_ratio=validation_ratio,
         random_seed=random_seed,
+        use_augmentation=use_augmentation,
     )
 
     model = SimpleCNN(num_classes=7).to(device)
@@ -252,6 +256,7 @@ def main():
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate}")
     print(f"Validation ratio: {validation_ratio}")
+    print(f"Use augmentation: {use_augmentation}")
     print(f"Train subset size: {len(train_loader.dataset)}")
     print(f"Validation subset size: {len(val_loader.dataset)}")
     print("-" * 40)
