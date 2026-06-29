@@ -131,7 +131,7 @@ def test_train_model_runs_multiple_epochs():
     """
     测试 train_model 是否能完成多个 epoch 的训练流程。
 
-    这个测试不追求 accuracy 高低，
+    这个测试不追求 accuracy 高低。
     只验证完整流程能跑通：
     train_one_epoch -> evaluate_accuracy -> print result
     """
@@ -139,7 +139,7 @@ def test_train_model_runs_multiple_epochs():
 
     model = SimpleCNN(num_classes=7).to(device)
     train_loader = create_dummy_train_loader(batch_size=16)
-    test_loader = create_dummy_train_loader(batch_size=16)
+    val_loader = create_dummy_train_loader(batch_size=16)
 
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -147,7 +147,7 @@ def test_train_model_runs_multiple_epochs():
     train_model(
         model=model,
         train_loader=train_loader,
-        test_loader=test_loader,
+        val_loader=val_loader,
         loss_fn=loss_fn,
         optimizer=optimizer,
         device=device,
@@ -159,12 +159,11 @@ def test_train_model_returns_history():
     """
     测试 train_model 是否返回训练历史。
 
-    当前第 14 阶段新增了 training curves。
-    要画曲线，必须先有 history。
+    当前第 15 阶段已经把 test_accuracy 改成 val_accuracy。
 
     history 里应该包含：
     - train_loss
-    - test_accuracy
+    - val_accuracy
 
     并且每个列表长度应该等于 num_epochs。
     """
@@ -172,7 +171,7 @@ def test_train_model_returns_history():
 
     model = SimpleCNN(num_classes=7).to(device)
     train_loader = create_dummy_train_loader(batch_size=16)
-    test_loader = create_dummy_train_loader(batch_size=16)
+    val_loader = create_dummy_train_loader(batch_size=16)
 
     loss_fn = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
@@ -182,7 +181,7 @@ def test_train_model_returns_history():
     history = train_model(
         model=model,
         train_loader=train_loader,
-        test_loader=test_loader,
+        val_loader=val_loader,
         loss_fn=loss_fn,
         optimizer=optimizer,
         device=device,
@@ -191,9 +190,9 @@ def test_train_model_returns_history():
 
     assert isinstance(history, dict)
     assert "train_loss" in history
-    assert "test_accuracy" in history
+    assert "val_accuracy" in history
     assert len(history["train_loss"]) == num_epochs
-    assert len(history["test_accuracy"]) == num_epochs
+    assert len(history["val_accuracy"]) == num_epochs
 
 
 def test_save_model_creates_model_file(tmp_path):
@@ -225,7 +224,7 @@ def test_save_training_history_creates_json_file(tmp_path):
     """
     history = {
         "train_loss": [1.5, 1.2, 1.0],
-        "test_accuracy": [0.40, 0.45, 0.50],
+        "val_accuracy": [0.40, 0.45, 0.50],
     }
 
     output_path = tmp_path / "training_history.json"
@@ -254,7 +253,7 @@ def test_save_training_curves_creates_png_file(tmp_path):
     """
     history = {
         "train_loss": [1.5, 1.2, 1.0],
-        "test_accuracy": [0.40, 0.45, 0.50],
+        "val_accuracy": [0.40, 0.45, 0.50],
     }
 
     output_path = tmp_path / "training_curves.png"

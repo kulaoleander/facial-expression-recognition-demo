@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import torch
 import torch.nn as nn
 
-from src.data_loader import create_data_loaders
+from src.data_loader import create_train_val_test_loaders
 from src.evaluate import evaluate_accuracy
 from src.model import SimpleCNN
 
@@ -49,26 +49,19 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     total_batches = 0
 
     for images, labels in train_loader:
-        # 把数据放到指定设备上
         images = images.to(device)
         labels = labels.to(device)
 
-        # 前向传播：图片进入模型，得到 7 类输出分数
         outputs = model(images)
 
-        # 计算 loss：比较模型输出和真实标签
         loss = loss_fn(outputs, labels)
 
-        # 清空上一批数据留下的梯度
         optimizer.zero_grad()
 
-        # 反向传播：根据 loss 计算每个参数应该怎么调整
         loss.backward()
 
-        # 更新模型参数
         optimizer.step()
 
-        # 记录当前 batch 的 loss
         total_loss += loss.item()
         total_batches += 1
 
@@ -77,31 +70,26 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     return average_loss
 
 
-def train_model(model, train_loader, test_loader, loss_fn, optimizer, device, num_epochs):
+def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, num_epochs):
     """
-    训练模型多个 epoch，并在每个 epoch 后评估 test accuracy。
+    训练模型多个 epoch，并在每个 epoch 后评估 validation accuracy。
 
     这个函数是当前阶段的训练主控流程：
     1. 训练一个 epoch
-    2. 在 test set 上评估 accuracy
-    3. 打印当前 epoch 的 loss 和 accuracy
-    4. 把每个 epoch 的 loss 和 accuracy 保存到 history 里
+    2. 在 validation set 上评估 accuracy
+    3. 打印当前 epoch 的 train loss 和 validation accuracy
+    4. 把每个 epoch 的 loss 和 validation accuracy 保存到 history 里
 
-    注意：
-    当前阶段仍然使用 test_loader 做每轮评估。
-    这是为了延续前面的 baseline pipeline。
-
-    后续第 15 阶段会改成：
-    - train set 用来训练
-    - validation set 用来训练过程中评估
-    - test set 只用于最终评估
+    为什么不用 test_loader？
+    - test set 应该留到最后做最终评估
+    - 训练过程中应该用 validation set 来观察模型表现
 
     输出：
-    - history: 字典，记录每个 epoch 的 train_loss 和 test_accuracy
+    - history: 字典，记录每个 epoch 的 train_loss 和 val_accuracy
     """
     history = {
         "train_loss": [],
-        "test_accuracy": [],
+        "val_accuracy": [],
     }
 
     for epoch in range(num_epochs):
@@ -113,19 +101,19 @@ def train_model(model, train_loader, test_loader, loss_fn, optimizer, device, nu
             device=device,
         )
 
-        test_accuracy = evaluate_accuracy(
+        val_accuracy = evaluate_accuracy(
             model=model,
-            data_loader=test_loader,
+            data_loader=val_loader,
             device=device,
         )
 
         history["train_loss"].append(average_loss)
-        history["test_accuracy"].append(test_accuracy)
+        history["val_accuracy"].append(val_accuracy)
 
         print(
             f"Epoch {epoch + 1}/{num_epochs} | "
             f"loss: {average_loss:.4f} | "
-            f"test accuracy: {test_accuracy:.4f}"
+            f"val accuracy: {val_accuracy:.4f}"
         )
 
     return history
@@ -155,7 +143,7 @@ def save_training_history(history, output_path):
     保存训练历史到 JSON 文件。
 
     这个函数在项目主线中的作用：
-    - 前面：train_model 已经记录了每个 epoch 的 loss 和 accuracy
+    - 前面：train_model 已经记录了每个 epoch 的 loss 和 validation accuracy
     - 当前：把这些记录保存成 training_history.json
     - 后面：可以用于复查训练过程，也可以用于重新画图或写实验总结
 
@@ -180,11 +168,11 @@ def save_training_curves(history, output_path):
 
     当前保存两条曲线：
     1. train loss curve
-    2. test accuracy curve
+    2. validation accuracy curve
 
     这张图的作用：
     - 看 loss 有没有下降
-    - 看 accuracy 有没有上升
+    - 看 validation accuracy 有没有上升
     - 为后面分析 overfitting / underfitting 做准备
 
     输入：
@@ -202,7 +190,7 @@ def save_training_curves(history, output_path):
     plt.figure(figsize=(8, 6))
 
     plt.plot(epochs, history["train_loss"], marker="o", label="Train Loss")
-    plt.plot(epochs, history["test_accuracy"], marker="o", label="Test Accuracy")
+    plt.plot(epochs, history["val_accuracy"], marker="o", label="Validation Accuracy")
 
     plt.title("Training Curves")
     plt.xlabel("Epoch")
@@ -220,23 +208,33 @@ def save_training_curves(history, output_path):
 
 def main():
     """
-    多 epoch 训练 + 评估 + 保存模型主流程。
+    多 epoch 训练 + validation 评估 + 保存模型主流程。
 
     当前目标：
-    1. 训练多个 epoch
-    2. 每个 epoch 后评估 test accuracy
-    3. 记录每个 epoch 的 loss 和 accuracy
+    1. 用 train_loader 训练模型
+    2. 每个 epoch 后用 val_loader 评估 validation accuracy
+    3. 记录每个 epoch 的 train loss 和 val accuracy
     4. 保存训练曲线图
     5. 保存训练历史 JSON
     6. 训练结束后保存模型权重
+
+    注意：
+    test_loader 暂时不在训练过程中使用。
+    它会留给最终评估阶段使用。
     """
     device = torch.device("cpu")
 
     num_epochs = 3
     batch_size = 32
     learning_rate = 0.001
+    validation_ratio = 0.2
+    random_seed = 42
 
-    train_loader, test_loader = create_data_loaders(batch_size=batch_size)
+    train_loader, val_loader, _ = create_train_val_test_loaders(
+        batch_size=batch_size,
+        validation_ratio=validation_ratio,
+        random_seed=random_seed,
+    )
 
     model = SimpleCNN(num_classes=7).to(device)
 
@@ -247,18 +245,21 @@ def main():
         lr=learning_rate,
     )
 
-    print("Training and evaluation started")
+    print("Training and validation started")
     print("-" * 40)
     print(f"Device: {device}")
     print(f"Epochs: {num_epochs}")
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate}")
+    print(f"Validation ratio: {validation_ratio}")
+    print(f"Train subset size: {len(train_loader.dataset)}")
+    print(f"Validation subset size: {len(val_loader.dataset)}")
     print("-" * 40)
 
     history = train_model(
         model=model,
         train_loader=train_loader,
-        test_loader=test_loader,
+        val_loader=val_loader,
         loss_fn=loss_fn,
         optimizer=optimizer,
         device=device,
@@ -284,7 +285,7 @@ def main():
     print(f"Model saved to: {MODEL_OUTPUT_PATH}")
     print(f"Training history saved to: {saved_history_path}")
     print(f"Training curves saved to: {saved_curves_path}")
-    print("Training and evaluation finished")
+    print("Training and validation finished")
 
 
 if __name__ == "__main__":
