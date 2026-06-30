@@ -1,5 +1,10 @@
+import csv
 import json
 from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 import torch
@@ -29,6 +34,9 @@ TRAINING_CURVES_PATH = FIGURES_OUTPUT_DIR / "training_curves.png"
 # 训练历史日志输出目录和路径
 LOGS_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "logs"
 TRAINING_HISTORY_PATH = LOGS_OUTPUT_DIR / "training_history.json"
+
+# 实验结果总表路径
+EXPERIMENT_RESULTS_PATH = LOGS_OUTPUT_DIR / "experiment_results.csv"
 
 
 def create_model(model_name, num_classes=7):
@@ -179,6 +187,7 @@ def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, num
 
     return history
 
+
 def save_model(model, model_path):
     """
     保存模型权重到指定路径。
@@ -266,6 +275,97 @@ def save_training_curves(history, output_path):
     return output_path
 
 
+def create_experiment_summary(
+    model_name,
+    history,
+    num_epochs,
+    batch_size,
+    learning_rate,
+    validation_ratio,
+    use_augmentation,
+    model_output_path,
+):
+    """
+    根据一次训练结果创建实验摘要。
+
+    这个函数在项目主线中的位置：
+    - 前面：train_model 得到了 history
+    - 当前：从 history 中提取关键指标
+    - 后面：save_experiment_summary 会把这一行保存到 CSV
+
+    输入：
+    - model_name: 当前训练的模型名
+    - history: 训练历史，包含 train_loss 和 val_accuracy
+    - num_epochs: 训练轮数
+    - batch_size: batch size
+    - learning_rate: 学习率
+    - validation_ratio: validation split 比例
+    - use_augmentation: 是否使用 data augmentation
+    - model_output_path: 模型保存路径
+
+    输出：
+    - summary: 一个字典，对应 CSV 表格中的一行
+    """
+    val_accuracy_history = history["val_accuracy"]
+
+    final_val_accuracy = val_accuracy_history[-1]
+    best_val_accuracy = max(val_accuracy_history)
+
+    summary = {
+        "model_name": model_name,
+        "num_epochs": num_epochs,
+        "batch_size": batch_size,
+        "learning_rate": learning_rate,
+        "validation_ratio": validation_ratio,
+        "use_augmentation": use_augmentation,
+        "final_val_accuracy": final_val_accuracy,
+        "best_val_accuracy": best_val_accuracy,
+        "model_path": str(model_output_path),
+    }
+
+    return summary
+
+
+def save_experiment_summary(summary, output_path):
+    """
+    把一次实验摘要追加保存到 CSV 文件。
+
+    这个函数在项目主线中的作用：
+    - 每训练一次模型，就往 experiment_results.csv 里追加一行
+    - 后面可以用这个文件比较不同模型表现
+
+    如果 CSV 文件不存在：
+    - 先写入表头
+    - 再写入当前实验结果
+
+    如果 CSV 文件已经存在：
+    - 直接追加当前实验结果
+
+    输入：
+    - summary: create_experiment_summary 生成的一行实验记录
+    - output_path: CSV 保存路径
+
+    输出：
+    - output_path: 保存后的 CSV 文件路径
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    file_exists = output_path.exists()
+
+    with open(output_path, "a", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(
+            file,
+            fieldnames=list(summary.keys()),
+        )
+
+        if not file_exists:
+            writer.writeheader()
+
+        writer.writerow(summary)
+
+    return output_path
+
+
 def main():
     """
     多 epoch 训练 + validation 评估 + 保存模型主流程。
@@ -279,6 +379,7 @@ def main():
     6. 保存训练曲线图
     7. 保存训练历史 JSON
     8. 训练结束后保存对应模型权重
+    9. 保存实验摘要到 experiment_results.csv
 
     注意：
     - augmentation 只作用于 train_loader
@@ -355,10 +456,27 @@ def main():
         output_path=TRAINING_CURVES_PATH,
     )
 
+    experiment_summary = create_experiment_summary(
+        model_name=model_name,
+        history=history,
+        num_epochs=num_epochs,
+        batch_size=batch_size,
+        learning_rate=learning_rate,
+        validation_ratio=validation_ratio,
+        use_augmentation=use_augmentation,
+        model_output_path=model_output_path,
+    )
+
+    saved_experiment_results_path = save_experiment_summary(
+        summary=experiment_summary,
+        output_path=EXPERIMENT_RESULTS_PATH,
+    )
+
     print("-" * 40)
     print(f"Model saved to: {model_output_path}")
     print(f"Training history saved to: {saved_history_path}")
     print(f"Training curves saved to: {saved_curves_path}")
+    print(f"Experiment results saved to: {saved_experiment_results_path}")
     print("Training and validation finished")
 
 

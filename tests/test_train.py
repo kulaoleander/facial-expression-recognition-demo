@@ -1,3 +1,4 @@
+import csv
 import json
 
 import pytest
@@ -7,8 +8,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from src.model import ImprovedCNN, SimpleCNN
 from src.train import (
+    create_experiment_summary,
     create_model,
     get_model_output_path,
+    save_experiment_summary,
     save_model,
     save_training_curves,
     save_training_history,
@@ -329,3 +332,131 @@ def test_save_training_curves_creates_png_file(tmp_path):
     assert saved_path.exists()
     assert saved_path.suffix == ".png"
     assert saved_path.stat().st_size > 0
+
+
+def test_create_experiment_summary_contains_expected_values():
+    """
+    测试 create_experiment_summary 是否能正确提取实验关键信息。
+
+    重点检查：
+    - final_val_accuracy 是最后一轮 validation accuracy
+    - best_val_accuracy 是所有轮次里最高的 validation accuracy
+    """
+    history = {
+        "train_loss": [1.6, 1.4, 1.3],
+        "val_accuracy": [0.40, 0.46, 0.44],
+    }
+
+    model_output_path = get_model_output_path(model_name="improved_cnn")
+
+    summary = create_experiment_summary(
+        model_name="improved_cnn",
+        history=history,
+        num_epochs=3,
+        batch_size=32,
+        learning_rate=0.001,
+        validation_ratio=0.2,
+        use_augmentation=True,
+        model_output_path=model_output_path,
+    )
+
+    assert summary["model_name"] == "improved_cnn"
+    assert summary["num_epochs"] == 3
+    assert summary["batch_size"] == 32
+    assert summary["learning_rate"] == 0.001
+    assert summary["validation_ratio"] == 0.2
+    assert summary["use_augmentation"] is True
+    assert summary["final_val_accuracy"] == 0.44
+    assert summary["best_val_accuracy"] == 0.46
+    assert summary["model_path"].endswith("improved_cnn.pth")
+
+
+def test_save_experiment_summary_creates_csv_file(tmp_path):
+    """
+    测试 save_experiment_summary 是否能创建 CSV 文件。
+
+    这个测试保护的是：
+    每次训练结束后，实验结果能被保存下来。
+    """
+    summary = {
+        "model_name": "improved_cnn",
+        "num_epochs": 3,
+        "batch_size": 32,
+        "learning_rate": 0.001,
+        "validation_ratio": 0.2,
+        "use_augmentation": True,
+        "final_val_accuracy": 0.44,
+        "best_val_accuracy": 0.46,
+        "model_path": "outputs/models/improved_cnn.pth",
+    }
+
+    output_path = tmp_path / "experiment_results.csv"
+
+    saved_path = save_experiment_summary(
+        summary=summary,
+        output_path=output_path,
+    )
+
+    assert saved_path.exists()
+    assert saved_path.suffix == ".csv"
+
+    with open(saved_path, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        rows = list(reader)
+
+    assert len(rows) == 1
+    assert rows[0]["model_name"] == "improved_cnn"
+
+
+def test_save_experiment_summary_appends_rows(tmp_path):
+    """
+    测试 save_experiment_summary 是否能追加多行实验结果。
+
+    这个测试保护的是：
+    - 第一次训练写入第一行
+    - 第二次训练追加第二行
+    - 不应该覆盖之前的实验记录
+    """
+    output_path = tmp_path / "experiment_results.csv"
+
+    first_summary = {
+        "model_name": "simple_cnn",
+        "num_epochs": 3,
+        "batch_size": 32,
+        "learning_rate": 0.001,
+        "validation_ratio": 0.2,
+        "use_augmentation": True,
+        "final_val_accuracy": 0.43,
+        "best_val_accuracy": 0.44,
+        "model_path": "outputs/models/simple_cnn.pth",
+    }
+
+    second_summary = {
+        "model_name": "improved_cnn",
+        "num_epochs": 3,
+        "batch_size": 32,
+        "learning_rate": 0.001,
+        "validation_ratio": 0.2,
+        "use_augmentation": True,
+        "final_val_accuracy": 0.45,
+        "best_val_accuracy": 0.46,
+        "model_path": "outputs/models/improved_cnn.pth",
+    }
+
+    save_experiment_summary(
+        summary=first_summary,
+        output_path=output_path,
+    )
+
+    save_experiment_summary(
+        summary=second_summary,
+        output_path=output_path,
+    )
+
+    with open(output_path, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        rows = list(reader)
+
+    assert len(rows) == 2
+    assert rows[0]["model_name"] == "simple_cnn"
+    assert rows[1]["model_name"] == "improved_cnn"
