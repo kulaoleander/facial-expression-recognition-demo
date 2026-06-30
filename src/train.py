@@ -7,15 +7,20 @@ import torch.nn as nn
 
 from src.data_loader import create_train_val_test_loaders
 from src.evaluate import evaluate_accuracy
-from src.model import SimpleCNN
+from src.model import ImprovedCNN, SimpleCNN
 
 
 # 项目根目录：facial-expression-recognition-demo/
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# 模型权重输出目录和路径
+# 模型权重输出目录
 MODEL_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "models"
-MODEL_OUTPUT_PATH = MODEL_OUTPUT_DIR / "simple_cnn.pth"
+
+# 不同模型保存成不同文件，避免覆盖 baseline
+MODEL_OUTPUT_FILENAMES = {
+    "simple_cnn": "simple_cnn.pth",
+    "improved_cnn": "improved_cnn.pth",
+}
 
 # 训练曲线图片输出目录和路径
 FIGURES_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "figures"
@@ -24,6 +29,62 @@ TRAINING_CURVES_PATH = FIGURES_OUTPUT_DIR / "training_curves.png"
 # 训练历史日志输出目录和路径
 LOGS_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "logs"
 TRAINING_HISTORY_PATH = LOGS_OUTPUT_DIR / "training_history.json"
+
+
+def create_model(model_name, num_classes=7):
+    """
+    根据 model_name 创建对应的模型。
+
+    这个函数在项目主线中的位置：
+    - 前面：model.py 里已经定义了 SimpleCNN 和 ImprovedCNN
+    - 当前：train.py 需要根据名字选择训练哪个模型
+    - 后面：实验对比阶段会用它切换不同模型
+
+    输入：
+    - model_name: 模型名字
+      - "simple_cnn"
+      - "improved_cnn"
+    - num_classes: 输出类别数量，当前 FER2013 是 7 类
+
+    输出：
+    - 一个 PyTorch 模型对象
+    """
+    if model_name == "simple_cnn":
+        return SimpleCNN(num_classes=num_classes)
+
+    if model_name == "improved_cnn":
+        return ImprovedCNN(num_classes=num_classes)
+
+    raise ValueError(
+        f"Unknown model_name: {model_name}. "
+        f"Expected one of: {list(MODEL_OUTPUT_FILENAMES.keys())}"
+    )
+
+
+def get_model_output_path(model_name):
+    """
+    根据 model_name 返回对应的模型权重保存路径。
+
+    为什么需要这个函数？
+    - SimpleCNN 是 baseline，应该保存成 simple_cnn.pth
+    - ImprovedCNN 是升级模型，应该保存成 improved_cnn.pth
+    - 这样后面才能做公平对比，不会互相覆盖
+
+    输入：
+    - model_name: 模型名字
+
+    输出：
+    - model_path: 模型权重保存路径
+    """
+    if model_name not in MODEL_OUTPUT_FILENAMES:
+        raise ValueError(
+            f"Unknown model_name: {model_name}. "
+            f"Expected one of: {list(MODEL_OUTPUT_FILENAMES.keys())}"
+        )
+
+    filename = MODEL_OUTPUT_FILENAMES[model_name]
+
+    return MODEL_OUTPUT_DIR / filename
 
 
 def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
@@ -118,7 +179,6 @@ def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, num
 
     return history
 
-
 def save_model(model, model_path):
     """
     保存模型权重到指定路径。
@@ -211,13 +271,14 @@ def main():
     多 epoch 训练 + validation 评估 + 保存模型主流程。
 
     当前目标：
-    1. 用 train_loader 训练模型
-    2. 训练集使用轻量 data augmentation
-    3. 每个 epoch 后用 val_loader 评估 validation accuracy
-    4. 记录每个 epoch 的 train loss 和 val accuracy
-    5. 保存训练曲线图
-    6. 保存训练历史 JSON
-    7. 训练结束后保存模型权重
+    1. 选择要训练的模型
+    2. 用 train_loader 训练模型
+    3. 训练集使用轻量 data augmentation
+    4. 每个 epoch 后用 val_loader 评估 validation accuracy
+    5. 记录每个 epoch 的 train loss 和 val accuracy
+    6. 保存训练曲线图
+    7. 保存训练历史 JSON
+    8. 训练结束后保存对应模型权重
 
     注意：
     - augmentation 只作用于 train_loader
@@ -225,6 +286,8 @@ def main():
     - test_loader 暂时不在训练过程中使用
     """
     device = torch.device("cpu")
+
+    model_name = "improved_cnn"
 
     num_epochs = 3
     batch_size = 32
@@ -240,7 +303,12 @@ def main():
         use_augmentation=use_augmentation,
     )
 
-    model = SimpleCNN(num_classes=7).to(device)
+    model = create_model(
+        model_name=model_name,
+        num_classes=7,
+    ).to(device)
+
+    model_output_path = get_model_output_path(model_name=model_name)
 
     loss_fn = nn.CrossEntropyLoss()
 
@@ -251,6 +319,7 @@ def main():
 
     print("Training and validation started")
     print("-" * 40)
+    print(f"Model name: {model_name}")
     print(f"Device: {device}")
     print(f"Epochs: {num_epochs}")
     print(f"Batch size: {batch_size}")
@@ -273,7 +342,7 @@ def main():
 
     save_model(
         model=model,
-        model_path=MODEL_OUTPUT_PATH,
+        model_path=model_output_path,
     )
 
     saved_history_path = save_training_history(
@@ -287,7 +356,7 @@ def main():
     )
 
     print("-" * 40)
-    print(f"Model saved to: {MODEL_OUTPUT_PATH}")
+    print(f"Model saved to: {model_output_path}")
     print(f"Training history saved to: {saved_history_path}")
     print(f"Training curves saved to: {saved_curves_path}")
     print("Training and validation finished")

@@ -1,11 +1,14 @@
 import json
 
+import pytest
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.model import SimpleCNN
+from src.model import ImprovedCNN, SimpleCNN
 from src.train import (
+    create_model,
+    get_model_output_path,
     save_model,
     save_training_curves,
     save_training_history,
@@ -34,6 +37,66 @@ def create_dummy_train_loader(batch_size=16):
     )
 
     return loader
+
+
+def test_create_model_returns_simple_cnn():
+    """
+    测试 create_model("simple_cnn") 是否返回 SimpleCNN。
+
+    这个测试保护的是：
+    train.py 可以通过 model_name 选择 baseline 模型。
+    """
+    model = create_model(
+        model_name="simple_cnn",
+        num_classes=7,
+    )
+
+    assert isinstance(model, SimpleCNN)
+
+
+def test_create_model_returns_improved_cnn():
+    """
+    测试 create_model("improved_cnn") 是否返回 ImprovedCNN。
+
+    这个测试保护的是：
+    train.py 可以通过 model_name 选择升级模型。
+    """
+    model = create_model(
+        model_name="improved_cnn",
+        num_classes=7,
+    )
+
+    assert isinstance(model, ImprovedCNN)
+
+
+def test_create_model_raises_error_for_unknown_model_name():
+    """
+    测试 create_model 遇到未知模型名时会报错。
+
+    为什么要测？
+    - 如果 model_name 拼错，应该立刻报错
+    - 不应该悄悄创建错误模型
+    """
+    with pytest.raises(ValueError):
+        create_model(
+            model_name="unknown_model",
+            num_classes=7,
+        )
+
+
+def test_get_model_output_path_returns_expected_filenames():
+    """
+    测试不同模型会保存成不同 .pth 文件。
+
+    这个测试保护的是：
+    - SimpleCNN 不会被 ImprovedCNN 覆盖
+    - 后面可以公平做模型对比
+    """
+    simple_model_path = get_model_output_path(model_name="simple_cnn")
+    improved_model_path = get_model_output_path(model_name="improved_cnn")
+
+    assert simple_model_path.name == "simple_cnn.pth"
+    assert improved_model_path.name == "improved_cnn.pth"
 
 
 def test_train_one_epoch_returns_float_loss():
