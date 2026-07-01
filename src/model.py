@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torchvision.models import ResNet18_Weights, resnet18
 
 
 class SimpleCNN(nn.Module):
@@ -148,6 +149,86 @@ class ImprovedCNN(nn.Module):
         return x
 
 
+class ResNet18ExpressionModel(nn.Module):
+    """
+    基于 ResNet18 的表情识别模型。
+
+    这个模型在项目主线中的作用：
+    - SimpleCNN 是 baseline
+    - ImprovedCNN 是手写增强版 CNN
+    - ResNet18ExpressionModel 是 transfer learning 阶段的模型
+
+    输入：
+    - images shape: [batch_size, 1, 48, 48]
+
+    输出：
+    - logits shape: [batch_size, 7]
+
+    为什么要改 ResNet18？
+    1. 原始 ResNet18 通常输入 3 通道 RGB 图片
+    2. FER2013 是 1 通道灰度图
+    3. 所以要把第一层 conv1 从 3 通道改成 1 通道
+    4. 原始 ResNet18 最后一层输出 ImageNet 类别
+    5. 所以要把最后一层 fc 改成输出 7 类表情
+    """
+
+    def __init__(self, num_classes=7, use_pretrained=False):
+        """
+        初始化 ResNet18 表情识别模型。
+
+        num_classes:
+        - 输出类别数量
+        - 当前项目是 7 类表情分类
+
+        use_pretrained:
+        - False：不下载预训练权重，适合测试和离线环境
+        - True：使用 ImageNet 预训练权重，适合后面正式 transfer learning
+        """
+        super().__init__()
+
+        if use_pretrained:
+            weights = ResNet18_Weights.DEFAULT
+        else:
+            weights = None
+
+        self.model = resnet18(weights=weights)
+
+        original_conv1 = self.model.conv1
+
+        self.model.conv1 = nn.Conv2d(
+            in_channels=1,
+            out_channels=original_conv1.out_channels,
+            kernel_size=original_conv1.kernel_size,
+            stride=original_conv1.stride,
+            padding=original_conv1.padding,
+            bias=False,
+        )
+
+        if use_pretrained:
+            with torch.no_grad():
+                self.model.conv1.weight.copy_(
+                    original_conv1.weight.mean(dim=1, keepdim=True)
+                )
+
+        self.model.fc = nn.Linear(
+            in_features=self.model.fc.in_features,
+            out_features=num_classes,
+        )
+
+    def forward(self, x):
+        """
+        定义 ResNet18ExpressionModel 的前向传播。
+
+        输入：
+        - x shape: [batch_size, 1, 48, 48]
+
+        输出：
+        - logits shape: [batch_size, 7]
+        """
+        x = self.model(x)
+        return x
+
+
 def main():
     """
     用假的 batch 测试模型能不能正常前向传播。
@@ -164,14 +245,22 @@ def main():
     improved_model = ImprovedCNN(num_classes=7)
     improved_outputs = improved_model(dummy_images)
 
+    resnet18_model = ResNet18ExpressionModel(
+        num_classes=7,
+        use_pretrained=False,
+    )
+    resnet18_outputs = resnet18_model(dummy_images)
+
     print("Model check")
     print("-" * 40)
     print(f"Input shape: {dummy_images.shape}")
     print(f"SimpleCNN output shape: {simple_outputs.shape}")
     print(f"ImprovedCNN output shape: {improved_outputs.shape}")
+    print(f"ResNet18ExpressionModel output shape: {resnet18_outputs.shape}")
 
     assert simple_outputs.shape == torch.Size([32, 7])
     assert improved_outputs.shape == torch.Size([32, 7])
+    assert resnet18_outputs.shape == torch.Size([32, 7])
 
 
 if __name__ == "__main__":

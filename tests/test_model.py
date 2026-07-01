@@ -1,6 +1,6 @@
 import torch
 
-from src.model import ImprovedCNN, SimpleCNN
+from src.model import ImprovedCNN, ResNet18ExpressionModel, SimpleCNN
 
 
 def test_simple_cnn_output_shape():
@@ -130,3 +130,92 @@ def test_improved_cnn_has_trainable_parameters():
     ]
 
     assert len(trainable_parameters) > 0
+
+
+def test_resnet18_expression_model_output_shape():
+    """
+    测试 ResNet18ExpressionModel 是否能输出 7 类 logits。
+
+    注意：
+    这里 use_pretrained=False，
+    避免单元测试时下载预训练权重。
+    """
+    model = ResNet18ExpressionModel(
+        num_classes=7,
+        use_pretrained=False,
+    )
+
+    dummy_images = torch.randn(32, 1, 48, 48)
+    outputs = model(dummy_images)
+
+    assert outputs.shape == torch.Size([32, 7])
+
+
+def test_resnet18_expression_model_works_with_different_batch_size():
+    """
+    测试 ResNet18ExpressionModel 是否支持不同 batch size。
+    """
+    model = ResNet18ExpressionModel(
+        num_classes=7,
+        use_pretrained=False,
+    )
+
+    dummy_images = torch.randn(8, 1, 48, 48)
+    outputs = model(dummy_images)
+
+    assert outputs.shape == torch.Size([8, 7])
+
+
+def test_resnet18_expression_model_accepts_grayscale_input():
+    """
+    测试 ResNet18ExpressionModel 是否真的支持 1 通道灰度输入。
+
+    如果第一层 conv1 没有从 3 通道改成 1 通道，
+    这里会直接报 shape mismatch。
+    """
+    model = ResNet18ExpressionModel(
+        num_classes=7,
+        use_pretrained=False,
+    )
+
+    dummy_images = torch.randn(4, 1, 48, 48)
+    outputs = model(dummy_images)
+
+    assert outputs.shape == torch.Size([4, 7])
+
+
+def test_resnet18_expression_model_has_trainable_parameters():
+    """
+    测试 ResNet18ExpressionModel 是否有可训练参数。
+
+    当前阶段先保持整个 ResNet18 可训练。
+    后面 fine-tuning 阶段再讨论是否冻结部分层。
+    """
+    model = ResNet18ExpressionModel(
+        num_classes=7,
+        use_pretrained=False,
+    )
+
+    trainable_parameters = [
+        parameter
+        for parameter in model.parameters()
+        if parameter.requires_grad
+    ]
+
+    assert len(trainable_parameters) > 0
+
+
+def test_resnet18_expression_model_first_conv_accepts_one_channel():
+    """
+    测试 ResNet18 的第一层卷积是否已经改成 1 通道输入。
+
+    原始 ResNet18 是 3 通道 RGB 输入。
+    当前项目 FER2013 是 1 通道灰度图。
+    所以 conv1.in_channels 应该等于 1。
+    """
+    model = ResNet18ExpressionModel(
+        num_classes=7,
+        use_pretrained=False,
+    )
+
+    assert model.model.conv1.in_channels == 1

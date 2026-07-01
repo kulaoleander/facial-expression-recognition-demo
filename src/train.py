@@ -12,7 +12,7 @@ import torch.nn as nn
 
 from src.data_loader import create_train_val_test_loaders
 from src.evaluate import evaluate_accuracy
-from src.model import ImprovedCNN, SimpleCNN
+from src.model import ImprovedCNN, ResNet18ExpressionModel, SimpleCNN
 
 
 # 项目根目录：facial-expression-recognition-demo/
@@ -25,6 +25,7 @@ MODEL_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "models"
 MODEL_OUTPUT_FILENAMES = {
     "simple_cnn": "simple_cnn.pth",
     "improved_cnn": "improved_cnn.pth",
+    "resnet18": "resnet18.pth",
 }
 
 # 训练曲线图片输出目录和路径
@@ -39,29 +40,31 @@ TRAINING_HISTORY_PATH = LOGS_OUTPUT_DIR / "training_history.json"
 EXPERIMENT_RESULTS_PATH = LOGS_OUTPUT_DIR / "experiment_results.csv"
 
 
-def create_model(model_name, num_classes=7):
+def create_model(model_name, num_classes=7, use_pretrained=False):
     """
     根据 model_name 创建对应的模型。
 
-    这个函数在项目主线中的位置：
-    - 前面：model.py 里已经定义了 SimpleCNN 和 ImprovedCNN
-    - 当前：train.py 需要根据名字选择训练哪个模型
-    - 后面：实验对比阶段会用它切换不同模型
+    支持的模型：
+    - simple_cnn
+    - improved_cnn
+    - resnet18
 
-    输入：
-    - model_name: 模型名字
-      - "simple_cnn"
-      - "improved_cnn"
-    - num_classes: 输出类别数量，当前 FER2013 是 7 类
-
-    输出：
-    - 一个 PyTorch 模型对象
+    use_pretrained:
+    - 主要给 ResNet18 使用
+    - False：不下载预训练权重，适合测试和离线环境
+    - True：使用 ImageNet 预训练权重，适合正式 transfer learning
     """
     if model_name == "simple_cnn":
         return SimpleCNN(num_classes=num_classes)
 
     if model_name == "improved_cnn":
         return ImprovedCNN(num_classes=num_classes)
+
+    if model_name == "resnet18":
+        return ResNet18ExpressionModel(
+            num_classes=num_classes,
+            use_pretrained=use_pretrained,
+        )
 
     raise ValueError(
         f"Unknown model_name: {model_name}. "
@@ -72,17 +75,6 @@ def create_model(model_name, num_classes=7):
 def get_model_output_path(model_name):
     """
     根据 model_name 返回对应的模型权重保存路径。
-
-    为什么需要这个函数？
-    - SimpleCNN 是 baseline，应该保存成 simple_cnn.pth
-    - ImprovedCNN 是升级模型，应该保存成 improved_cnn.pth
-    - 这样后面才能做公平对比，不会互相覆盖
-
-    输入：
-    - model_name: 模型名字
-
-    输出：
-    - model_path: 模型权重保存路径
     """
     if model_name not in MODEL_OUTPUT_FILENAMES:
         raise ValueError(
@@ -98,19 +90,6 @@ def get_model_output_path(model_name):
 def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     """
     训练模型一个 epoch。
-
-    一个 epoch 的意思是：
-    模型完整看一遍训练集。
-
-    这个函数做的事情：
-    1. 从 train_loader 里一批一批取图片和标签
-    2. 用 model 做预测
-    3. 用 loss_fn 计算预测和真实标签之间的差距
-    4. 用 optimizer 更新模型参数
-    5. 返回这一轮训练的平均 loss
-
-    输出：
-    - average_loss: 当前 epoch 的平均训练损失
     """
     model.train()
 
@@ -126,9 +105,7 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
         loss = loss_fn(outputs, labels)
 
         optimizer.zero_grad()
-
         loss.backward()
-
         optimizer.step()
 
         total_loss += loss.item()
@@ -139,26 +116,31 @@ def train_one_epoch(model, train_loader, loss_fn, optimizer, device):
     return average_loss
 
 
-def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, num_epochs):
+def train_model(
+    model,
+    train_loader,
+    val_loader,
+    loss_fn,
+    optimizer,
+    device,
+    num_epochs,
+    best_model_path=None,
+):
     """
     训练模型多个 epoch，并在每个 epoch 后评估 validation accuracy。
 
-    这个函数是当前阶段的训练主控流程：
-    1. 训练一个 epoch
-    2. 在 validation set 上评估 accuracy
-    3. 打印当前 epoch 的 train loss 和 validation accuracy
-    4. 把每个 epoch 的 loss 和 validation accuracy 保存到 history 里
-
-    为什么不用 test_loader？
-    - test set 应该留到最后做最终评估
-    - 训练过程中应该用 validation set 来观察模型表现
-
-    输出：
-    - history: 字典，记录每个 epoch 的 train_loss 和 val_accuracy
+    当前这个函数负责：
+    1. 每个 epoch 训练一次模型
+    2. 每个 epoch 后用 validation set 评估
+    3. 记录 train_loss 和 val_accuracy
+    4. 记录 best_val_accuracy 和 best_epoch
+    5. 如果 validation accuracy 创新高，就保存当前模型
     """
     history = {
         "train_loss": [],
         "val_accuracy": [],
+        "best_val_accuracy": -1.0,
+        "best_epoch": 0,
     }
 
     for epoch in range(num_epochs):
@@ -179,6 +161,21 @@ def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, num
         history["train_loss"].append(average_loss)
         history["val_accuracy"].append(val_accuracy)
 
+        if val_accuracy > history["best_val_accuracy"]:
+            history["best_val_accuracy"] = val_accuracy
+            history["best_epoch"] = epoch + 1
+
+            if best_model_path is not None:
+                save_model(
+                    model=model,
+                    model_path=best_model_path,
+                )
+
+                print(
+                    f"Best model updated at epoch {epoch + 1} | "
+                    f"best val accuracy: {val_accuracy:.4f}"
+                )
+
         print(
             f"Epoch {epoch + 1}/{num_epochs} | "
             f"loss: {average_loss:.4f} | "
@@ -191,16 +188,6 @@ def train_model(model, train_loader, val_loader, loss_fn, optimizer, device, num
 def save_model(model, model_path):
     """
     保存模型权重到指定路径。
-
-    注意：
-    这里保存的是 model.state_dict()，也就是模型参数，
-    不是把整个模型对象直接保存下来。
-
-    这样做更常见，也更适合后面加载模型做预测。
-
-    输入：
-    - model: 已训练好的模型
-    - model_path: 模型权重保存路径
     """
     model_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -210,18 +197,6 @@ def save_model(model, model_path):
 def save_training_history(history, output_path):
     """
     保存训练历史到 JSON 文件。
-
-    这个函数在项目主线中的作用：
-    - 前面：train_model 已经记录了每个 epoch 的 loss 和 validation accuracy
-    - 当前：把这些记录保存成 training_history.json
-    - 后面：可以用于复查训练过程，也可以用于重新画图或写实验总结
-
-    输入：
-    - history: 训练历史字典
-    - output_path: JSON 文件保存路径
-
-    输出：
-    - output_path: 保存后的 JSON 文件路径
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -234,22 +209,6 @@ def save_training_history(history, output_path):
 def save_training_curves(history, output_path):
     """
     保存训练曲线图。
-
-    当前保存两条曲线：
-    1. train loss curve
-    2. validation accuracy curve
-
-    这张图的作用：
-    - 看 loss 有没有下降
-    - 看 validation accuracy 有没有上升
-    - 为后面分析 overfitting / underfitting 做准备
-
-    输入：
-    - history: 训练历史字典
-    - output_path: 图片保存路径
-
-    输出：
-    - output_path: 保存后的图片路径
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -283,28 +242,13 @@ def create_experiment_summary(
     learning_rate,
     validation_ratio,
     use_augmentation,
+    use_pretrained,
     model_output_path,
 ):
     """
     根据一次训练结果创建实验摘要。
 
-    这个函数在项目主线中的位置：
-    - 前面：train_model 得到了 history
-    - 当前：从 history 中提取关键指标
-    - 后面：save_experiment_summary 会把这一行保存到 CSV
-
-    输入：
-    - model_name: 当前训练的模型名
-    - history: 训练历史，包含 train_loss 和 val_accuracy
-    - num_epochs: 训练轮数
-    - batch_size: batch size
-    - learning_rate: 学习率
-    - validation_ratio: validation split 比例
-    - use_augmentation: 是否使用 data augmentation
-    - model_output_path: 模型保存路径
-
-    输出：
-    - summary: 一个字典，对应 CSV 表格中的一行
+    这个函数会整理出 experiment_results.csv 里的一行。
     """
     val_accuracy_history = history["val_accuracy"]
 
@@ -318,6 +262,7 @@ def create_experiment_summary(
         "learning_rate": learning_rate,
         "validation_ratio": validation_ratio,
         "use_augmentation": use_augmentation,
+        "use_pretrained": use_pretrained,
         "final_val_accuracy": final_val_accuracy,
         "best_val_accuracy": best_val_accuracy,
         "model_path": str(model_output_path),
@@ -329,24 +274,6 @@ def create_experiment_summary(
 def save_experiment_summary(summary, output_path):
     """
     把一次实验摘要追加保存到 CSV 文件。
-
-    这个函数在项目主线中的作用：
-    - 每训练一次模型，就往 experiment_results.csv 里追加一行
-    - 后面可以用这个文件比较不同模型表现
-
-    如果 CSV 文件不存在：
-    - 先写入表头
-    - 再写入当前实验结果
-
-    如果 CSV 文件已经存在：
-    - 直接追加当前实验结果
-
-    输入：
-    - summary: create_experiment_summary 生成的一行实验记录
-    - output_path: CSV 保存路径
-
-    输出：
-    - output_path: 保存后的 CSV 文件路径
     """
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -368,27 +295,12 @@ def save_experiment_summary(summary, output_path):
 
 def main():
     """
-    多 epoch 训练 + validation 评估 + 保存模型主流程。
-
-    当前目标：
-    1. 选择要训练的模型
-    2. 用 train_loader 训练模型
-    3. 训练集使用轻量 data augmentation
-    4. 每个 epoch 后用 val_loader 评估 validation accuracy
-    5. 记录每个 epoch 的 train loss 和 val accuracy
-    6. 保存训练曲线图
-    7. 保存训练历史 JSON
-    8. 训练结束后保存对应模型权重
-    9. 保存实验摘要到 experiment_results.csv
-
-    注意：
-    - augmentation 只作用于 train_loader
-    - validation loader 不使用 augmentation
-    - test_loader 暂时不在训练过程中使用
+    多 epoch 训练 + validation 评估 + 保存 best model 主流程。
     """
     device = torch.device("cpu")
 
-    model_name = "improved_cnn"
+    model_name = "resnet18"
+    use_pretrained = True
 
     num_epochs = 3
     batch_size = 32
@@ -407,6 +319,7 @@ def main():
     model = create_model(
         model_name=model_name,
         num_classes=7,
+        use_pretrained=use_pretrained,
     ).to(device)
 
     model_output_path = get_model_output_path(model_name=model_name)
@@ -421,6 +334,7 @@ def main():
     print("Training and validation started")
     print("-" * 40)
     print(f"Model name: {model_name}")
+    print(f"Use pretrained: {use_pretrained}")
     print(f"Device: {device}")
     print(f"Epochs: {num_epochs}")
     print(f"Batch size: {batch_size}")
@@ -439,11 +353,7 @@ def main():
         optimizer=optimizer,
         device=device,
         num_epochs=num_epochs,
-    )
-
-    save_model(
-        model=model,
-        model_path=model_output_path,
+        best_model_path=model_output_path,
     )
 
     saved_history_path = save_training_history(
@@ -464,6 +374,7 @@ def main():
         learning_rate=learning_rate,
         validation_ratio=validation_ratio,
         use_augmentation=use_augmentation,
+        use_pretrained=use_pretrained,
         model_output_path=model_output_path,
     )
 
@@ -473,7 +384,9 @@ def main():
     )
 
     print("-" * 40)
-    print(f"Model saved to: {model_output_path}")
+    print(f"Best model saved to: {model_output_path}")
+    print(f"Best epoch: {history['best_epoch']}")
+    print(f"Best validation accuracy: {history['best_val_accuracy']:.4f}")
     print(f"Training history saved to: {saved_history_path}")
     print(f"Training curves saved to: {saved_curves_path}")
     print(f"Experiment results saved to: {saved_experiment_results_path}")
