@@ -1,16 +1,16 @@
 # Facial Expression Recognition Demo
 
-This project is a beginner-friendly deep learning and computer vision demo for facial expression recognition.
+An end-to-end deep learning and computer vision project for facial expression recognition.
 
-It implements a complete first-version AI pipeline using PyTorch, including dataset inspection, data loading, CNN model training, evaluation, model saving/loading, single image prediction, a Streamlit web demo, and pytest-based automated tests.
+This project predicts one of seven facial expressions from face images and includes a complete AI application pipeline: dataset inspection, PyTorch data loading, CNN baselines, transfer learning with ResNet18, training and validation, detailed evaluation, model saving/loading, single-image prediction, OpenCV face detection, Streamlit demo, and pytest-based automated tests.
 
-The main goal of this project is not to achieve state-of-the-art accuracy, but to build a complete, explainable, reproducible AI application pipeline that can be shown on GitHub, discussed in interviews, and extended later.
+The goal of this project is not to claim state-of-the-art performance, but to build a complete, explainable, reproducible AI application that can be shown on GitHub, discussed in interviews, and extended into real-time computer vision applications.
+
+---
 
 ## Project Overview
 
-The project predicts facial expressions from face images.
-
-The current model is a simple CNN baseline trained on a FER2013-style dataset with 7 emotion classes:
+The project classifies facial expressions into seven categories:
 
 * angry
 * disgust
@@ -20,53 +20,65 @@ The current model is a simple CNN baseline trained on a FER2013-style dataset wi
 * sad
 * surprise
 
-Current input image format:
+Input format:
 
-* grayscale image
-* 48x48 pixels
-* tensor shape: `[batch_size, 1, 48, 48]`
+```text
+grayscale image
+48x48 pixels
+tensor shape: [batch_size, 1, 48, 48]
+```
 
 Model output format:
 
-* logits shape: `[batch_size, 7]`
+```text
+logits shape: [batch_size, 7]
+```
 
-## Current Features
+The project started with a simple CNN baseline and was gradually improved with validation/test split, data augmentation, ImprovedCNN, transfer learning with ResNet18, robust prediction outputs, and OpenCV-based face crop support.
 
-Implemented features:
+---
 
-* Project folder structure
-* Python virtual environment setup
-* Dependency management with `requirements.txt`
-* Dataset folder documentation
+## Main Features
+
 * FER2013-style dataset structure inspection
-* Image count checking for train/test splits
-* Sample image mode and size inspection
-* PyTorch `ImageFolder` dataset loading
-* DataLoader batch creation
-* Simple CNN baseline model
-* Model forward pass validation
+* PyTorch `ImageFolder` data loading
+* Train / validation / test split
+* Data augmentation for training data
+* SimpleCNN baseline model
+* ImprovedCNN with BatchNorm and Dropout
+* ResNet18 transfer learning model
 * Training loop with `CrossEntropyLoss` and Adam optimizer
-* Multi-epoch training
-* Test accuracy evaluation
-* Model weight saving to `.pth`
-* Model weight loading from `.pth`
-* Single image prediction
+* Validation accuracy tracking
+* Best model checkpoint saving
+* Training history saved as JSON
+* Training curves saved as PNG
+* Experiment comparison logging as CSV
+* Detailed evaluation with classification report and confusion matrix
+* Single-image prediction
+* Top-3 prediction probabilities
+* Low-confidence warning
+* OpenCV Haar Cascade face detection
+* Largest face crop with fallback to original image
 * Streamlit web demo
 * Automated tests with pytest
+
+---
 
 ## Tech Stack
 
 * Python
 * PyTorch
 * torchvision
+* OpenCV
 * Pillow
 * NumPy
 * pandas
 * matplotlib
 * scikit-learn
-* OpenCV
 * Streamlit
 * pytest
+
+---
 
 ## Project Structure
 
@@ -81,17 +93,23 @@ facial-expression-recognition-demo/
 │   │   ├── train/
 │   │   └── test/
 │   └── processed/
+├── docs/
+│   ├── baseline_v0.1.md
+│   └── experiment_comparison.md
 ├── notebooks/
 │   └── README.md
 ├── outputs/
 │   ├── README.md
+│   ├── figures/
+│   ├── logs/
 │   └── models/
-│       └── simple_cnn.pth
 ├── src/
 │   ├── __init__.py
 │   ├── data_loader.py
 │   ├── environment_check.py
 │   ├── evaluate.py
+│   ├── evaluate_detailed.py
+│   ├── face_detection.py
 │   ├── inspect_dataset.py
 │   ├── load_model.py
 │   ├── model.py
@@ -102,6 +120,8 @@ facial-expression-recognition-demo/
 │   ├── test_data_loader.py
 │   ├── test_environment_check.py
 │   ├── test_evaluate.py
+│   ├── test_evaluate_detailed.py
+│   ├── test_face_detection.py
 │   ├── test_inspect_dataset.py
 │   ├── test_load_model.py
 │   ├── test_model.py
@@ -112,7 +132,9 @@ facial-expression-recognition-demo/
 └── requirements.txt
 ```
 
-Note: `data/raw/`, `data/processed/`, and model weight files such as `.pth` are ignored by Git and are not uploaded to GitHub.
+Note: `data/raw/`, `data/processed/`, trained model weights, generated logs, and generated figures are ignored by Git and are not uploaded to GitHub.
+
+---
 
 ## Dataset
 
@@ -140,13 +162,15 @@ data/raw/
     └── surprise/
 ```
 
-The dataset files are not committed to GitHub because image datasets are usually large.
+The dataset is not committed to GitHub because image datasets are usually large.
+
+---
 
 ## Setup
 
-Create and activate a virtual environment first.
+Create and activate a virtual environment.
 
-Example on Windows PowerShell:
+Windows PowerShell:
 
 ```powershell
 py -3.11 -m venv .venv
@@ -159,6 +183,8 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
+---
+
 ## Environment Check
 
 Run:
@@ -168,6 +194,8 @@ python -m src.environment_check
 ```
 
 This checks whether the main Python dependencies can be imported successfully.
+
+---
 
 ## Dataset Inspection
 
@@ -192,6 +220,8 @@ mode: L
 size: (48, 48)
 ```
 
+---
+
 ## Train the Model
 
 Run:
@@ -200,46 +230,88 @@ Run:
 python -m src.train
 ```
 
-The current training script:
+The training script supports multiple model choices in code:
 
-* creates train/test DataLoaders
-* trains a simple CNN baseline for multiple epochs
-* evaluates test accuracy after each epoch
-* saves model weights to:
-
-```text
-outputs/models/simple_cnn.pth
+```python
+model_name = "simple_cnn"
+model_name = "improved_cnn"
+model_name = "resnet18"
 ```
 
-Example result from the baseline training run:
+For ResNet18 transfer learning:
 
-```text
-Epoch 1/3 | loss: 1.6252 | test accuracy: 0.4055
-Epoch 2/3 | loss: 1.4232 | test accuracy: 0.4749
-Epoch 3/3 | loss: 1.3043 | test accuracy: 0.5052
+```python
+model_name = "resnet18"
+use_pretrained = True
 ```
 
-Results may vary because model initialization and data shuffling are random.
+The training pipeline:
 
-## Load the Saved Model
+```text
+Dataset
+↓
+Train / validation / test split
+↓
+Data augmentation on training set
+↓
+Model training
+↓
+Validation accuracy tracking
+↓
+Best model checkpoint saving
+↓
+Training history and curve saving
+↓
+Experiment result logging
+```
+
+Generated outputs include:
+
+```text
+outputs/models/
+outputs/logs/training_history.json
+outputs/logs/experiment_results.csv
+outputs/figures/training_curves.png
+```
+
+---
+
+## Model Comparison
+
+A controlled experiment was run using the same validation split and training configuration.
+
+| Model                 | Validation Accuracy |
+| --------------------- | ------------------: |
+| SimpleCNN             |              0.4142 |
+| ImprovedCNN           |              0.4644 |
+| ResNet18 from scratch |              0.4715 |
+| Pretrained ResNet18   |              0.5078 |
+
+The pretrained ResNet18 model achieved the best validation accuracy in this project.
+
+This shows the value of transfer learning: instead of learning visual features from scratch, the model can reuse general image features learned from large-scale image data and fine-tune them for facial expression recognition.
+
+---
+
+## Detailed Evaluation
 
 Run:
 
 ```powershell
-python -m src.load_model
+python -m src.evaluate_detailed
 ```
 
-This loads:
+This generates:
 
-```text
-outputs/models/simple_cnn.pth
-```
+* overall accuracy
+* classification report
+* per-class precision, recall, and F1-score
+* confusion matrix
+* per-class accuracy
 
-and checks whether the loaded model can still produce output with shape:
+This is useful because overall accuracy alone can hide weak classes, especially when the dataset is imbalanced.
 
-```text
-[32, 7]
-```
+---
 
 ## Single Image Prediction
 
@@ -249,16 +321,37 @@ Run:
 python -m src.predict
 ```
 
-This loads the saved model and predicts the emotion of one sample image.
+The prediction output includes:
+
+* predicted class
+* confidence
+* top-3 predictions
+* low-confidence flag
+* face crop status
+* number of detected faces
+* selected face box
 
 Example output:
 
 ```text
+Single image prediction
+----------------------------------------
+Use face crop: True
+Face found: False
+Number of faces: 0
+Face box: None
 Predicted class: happy
-Confidence: 0.8929
+Confidence: 0.7702
+Low confidence: False
+Top predictions:
+- happy: 0.7702
+- angry: 0.0646
+- neutral: 0.0569
 ```
 
-The prediction result depends on the selected image and the trained model weights.
+If no face is detected, the system falls back to the original image instead of crashing.
+
+---
 
 ## Streamlit Demo
 
@@ -272,22 +365,51 @@ The web app allows users to:
 
 * upload an image
 * preview the uploaded image
+* enable or disable face detection / face crop
+* see whether a face was detected
+* view the image used for prediction
 * run emotion prediction
 * see predicted emotion and confidence
+* see top-3 prediction probabilities
+* see a low-confidence warning when appropriate
 
-Important: before running the demo, make sure the model weight file exists:
+---
+
+## Face Detection and Face Crop
+
+The project uses OpenCV Haar Cascade face detection.
+
+The face crop pipeline is:
 
 ```text
-outputs/models/simple_cnn.pth
+Uploaded image
+↓
+OpenCV face detection
+↓
+Select largest detected face
+↓
+Add padding around face box
+↓
+Crop face region
+↓
+Resize to 48x48
+↓
+Run expression prediction
 ```
 
-If it does not exist, run:
+If no face is detected:
 
-```powershell
-python -m src.train
+```text
+No detected face
+↓
+Use original image as fallback
+↓
+Continue prediction
 ```
 
-first.
+This makes the demo more robust for real-world uploaded images.
+
+---
 
 ## Run Tests
 
@@ -297,83 +419,120 @@ Run all tests:
 python -m pytest
 ```
 
+Current local test result:
+
+```text
+75 passed
+```
+
 Current test coverage includes:
 
 * environment check
 * dataset inspection
-* DataLoader output shape and dtype
-* CNN model output shape
+* DataLoader output shape and split logic
+* data augmentation behavior
+* model output shape
+* SimpleCNN / ImprovedCNN / ResNet18 model creation
 * training loop
 * model saving
-* model loading
+* training history saving
+* training curve saving
+* experiment summary saving
 * evaluation accuracy
-* single image prediction
+* detailed evaluation metrics
+* single-image prediction
+* top-k prediction logic
+* low-confidence logic
+* OpenCV face detection utilities
+* face crop fallback behavior
 
-Current local test result:
+---
+
+## Project Pipeline
 
 ```text
-29 passed
+Dataset
+↓
+Dataset inspection
+↓
+DataLoader
+↓
+Train / validation / test split
+↓
+Data augmentation
+↓
+CNN baseline
+↓
+Improved CNN
+↓
+Transfer learning with ResNet18
+↓
+Training and validation
+↓
+Model checkpoint saving
+↓
+Detailed evaluation
+↓
+Single-image prediction
+↓
+Top-3 prediction and low-confidence warning
+↓
+OpenCV face detection and face crop
+↓
+Streamlit web demo
+↓
+Automated tests
 ```
 
-## Current Baseline Result
+---
 
-The current SimpleCNN baseline can learn useful patterns from the FER2013-style dataset.
+## What I Learned
 
-A sample 3-epoch training run reached around 50% test accuracy.
+This project helped me practice:
 
-This is a reasonable first baseline, but it is not a final high-performance model.
+* building a complete PyTorch image classification pipeline
+* using train / validation / test split correctly
+* comparing models with controlled experiments
+* using transfer learning with ResNet18
+* evaluating classification models beyond overall accuracy
+* building a simple AI web demo with Streamlit
+* adding OpenCV preprocessing before model inference
+* writing pytest tests for machine learning project components
+* organizing a project for GitHub and interview discussion
+
+---
 
 ## Limitations
 
 Current limitations:
 
-* The model is a simple CNN baseline.
-* The model is trained on 48x48 grayscale face images.
-* Uploaded real-world photos may not work well if the face is not cropped.
-* There is no automatic face detection or face alignment yet.
-* The model may struggle with class imbalance, especially minority classes such as disgust.
-* Confidence scores are based on softmax and should not be treated as calibrated probabilities.
-* The project currently focuses on building a complete pipeline rather than achieving state-of-the-art accuracy.
+* FER2013-style 48x48 grayscale images are low-resolution.
+* Facial expression labels can be ambiguous.
+* Some classes are harder due to imbalance and visual similarity.
+* Haar Cascade face detection is simple and may fail on low-resolution or non-frontal faces.
+* Softmax confidence is not a fully calibrated probability.
+* The project focuses on building a complete applied AI pipeline rather than achieving state-of-the-art performance.
 
-## Next Steps
+---
 
-Possible next improvements:
+## Possible Future Improvements
 
-* Add face detection and automatic face cropping
-* Add confusion matrix visualization
-* Add per-class accuracy / precision / recall / F1-score
-* Save training history
-* Plot loss and accuracy curves
-* Improve CNN architecture with BatchNorm and Dropout
-* Add model checkpointing for best test accuracy
-* Improve Streamlit UI
-* Add README screenshots
-* Prepare a short project explanation for CV and interviews
+Possible future improvements include:
+
+* use a stronger face detector
+* add face alignment
+* train for more epochs
+* tune learning rate and batch size
+* improve class imbalance handling
+* add model selection in the Streamlit interface
+* deploy the Streamlit demo online
+* extend the project to webcam-based real-time prediction
+* combine expression recognition with attention-state estimation
+
+---
 
 ## Project Status
 
-First complete working pipeline implemented.
+Version 1.0 completed.
 
-The project currently supports:
-
-```text
-Dataset
-↓
-DataLoader
-↓
-CNN model
-↓
-Training
-↓
-Evaluation
-↓
-Model saving
-↓
-Model loading
-↓
-Single image prediction
-↓
-Streamlit demo
-↓
-pytest tests
-```
+The project now supports a complete facial expression recognition workflow from dataset loading to model training, evaluation, robust prediction, face crop preprocessing, web demo, and automated tests.
