@@ -41,7 +41,82 @@ def create_prediction_transform():
     )
 
 
-def predict_image(model, image_path, class_names, device):
+def calculate_prediction_result(
+    outputs,
+    class_names,
+    top_k=3,
+    low_confidence_threshold=0.5,
+):
+    """
+    根据模型输出 logits 计算预测结果。
+
+    这个函数在项目主线中的位置：
+    - 前面：model(image_tensor) 得到 logits
+    - 当前：把 logits 转成 probability、top-3、low confidence
+    - 后面：Streamlit demo 会显示这些结果
+
+    输入：
+    - outputs: 模型输出 logits，shape: [batch_size, num_classes]
+    - class_names: 类别名称列表
+    - top_k: 返回前几个最可能类别，默认 3
+    - low_confidence_threshold: 低置信度阈值，默认 0.5
+
+    输出：
+    - 一个字典，包含：
+      - predicted_class
+      - confidence
+      - top_predictions
+      - is_low_confidence
+      - low_confidence_threshold
+    """
+    if top_k <= 0:
+        raise ValueError("top_k must be greater than 0")
+
+    if top_k > len(class_names):
+        raise ValueError("top_k cannot be greater than number of classes")
+
+    probabilities = torch.softmax(outputs, dim=1)
+
+    top_probabilities, top_indices = torch.topk(
+        probabilities,
+        k=top_k,
+        dim=1,
+    )
+
+    top_predictions = []
+
+    for probability, class_index in zip(top_probabilities[0], top_indices[0]):
+        class_name = class_names[class_index.item()]
+
+        top_predictions.append(
+            {
+                "class_name": class_name,
+                "probability": probability.item(),
+            }
+        )
+
+    predicted_class = top_predictions[0]["class_name"]
+    confidence = top_predictions[0]["probability"]
+
+    is_low_confidence = confidence < low_confidence_threshold
+
+    return {
+        "predicted_class": predicted_class,
+        "confidence": confidence,
+        "top_predictions": top_predictions,
+        "is_low_confidence": is_low_confidence,
+        "low_confidence_threshold": low_confidence_threshold,
+    }
+
+
+def predict_image(
+    model,
+    image_path,
+    class_names,
+    device,
+    top_k=3,
+    low_confidence_threshold=0.5,
+):
     """
     对单张图片进行表情预测。
 
@@ -50,9 +125,11 @@ def predict_image(model, image_path, class_names, device):
     - image_path: 要预测的图片路径
     - class_names: 类别名称列表
     - device: cpu 或 cuda
+    - top_k: 返回前几个最可能类别
+    - low_confidence_threshold: 低置信度阈值
 
     输出：
-    - 一个字典，包含图片路径、预测类别和置信度
+    - 一个字典，包含图片路径、预测类别、置信度、top-k 预测和低置信度状态
     """
     if not image_path.exists():
         raise FileNotFoundError(f"Image file not found: {image_path}")
@@ -75,17 +152,16 @@ def predict_image(model, image_path, class_names, device):
     with torch.no_grad():
         outputs = model(image_tensor)
 
-        probabilities = torch.softmax(outputs, dim=1)
+        prediction_result = calculate_prediction_result(
+            outputs=outputs,
+            class_names=class_names,
+            top_k=top_k,
+            low_confidence_threshold=low_confidence_threshold,
+        )
 
-        confidence, predicted_index = torch.max(probabilities, dim=1)
+    prediction_result["image_path"] = str(image_path)
 
-    predicted_class = class_names[predicted_index.item()]
-
-    return {
-        "image_path": str(image_path),
-        "predicted_class": predicted_class,
-        "confidence": confidence.item(),
-    }
+    return prediction_result
 
 
 def main():
@@ -94,7 +170,7 @@ def main():
 
     注意：
     这里默认预测 test/happy 下面的一张图片。
-    预测结果不一定总是 happy，因为当前模型还是简单 baseline。
+    预测结果不一定总是 happy，因为当前模型还不一定足够强。
     """
     device = torch.device("cpu")
 
@@ -108,6 +184,8 @@ def main():
         image_path=SAMPLE_IMAGE_PATH,
         class_names=CLASS_NAMES,
         device=device,
+        top_k=3,
+        low_confidence_threshold=0.5,
     )
 
     print("Single image prediction")
@@ -115,6 +193,14 @@ def main():
     print(f"Image path: {result['image_path']}")
     print(f"Predicted class: {result['predicted_class']}")
     print(f"Confidence: {result['confidence']:.4f}")
+    print(f"Low confidence: {result['is_low_confidence']}")
+    print("Top predictions:")
+
+    for prediction in result["top_predictions"]:
+        class_name = prediction["class_name"]
+        probability = prediction["probability"]
+
+        print(f"- {class_name}: {probability:.4f}")
 
 
 if __name__ == "__main__":

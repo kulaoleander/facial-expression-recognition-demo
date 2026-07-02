@@ -11,7 +11,11 @@ sys.path.append(str(PROJECT_ROOT))
 
 
 from src.load_model import MODEL_PATH, load_trained_model
-from src.predict import CLASS_NAMES, create_prediction_transform
+from src.predict import (
+    CLASS_NAMES,
+    calculate_prediction_result,
+    create_prediction_transform,
+)
 
 
 st.set_page_config(
@@ -38,18 +42,30 @@ def get_model():
     return model, device
 
 
-def predict_uploaded_image(model, image, device):
+def predict_uploaded_image(
+    model,
+    image,
+    device,
+    top_k=3,
+    low_confidence_threshold=0.5,
+):
     """
     对用户上传的图片进行预测。
 
+    这个函数在项目主线中的位置：
+    - 前面：src.predict 已经能做 top-3 和 low confidence
+    - 当前：Streamlit demo 复用同一套预测逻辑
+    - 后面：网页会显示更完整的推理结果
+
     输入：
-    - model: 已加载好的 SimpleCNN
+    - model: 已加载好的模型
     - image: 用户上传的 PIL 图片
     - device: cpu 或 cuda
+    - top_k: 返回前几个预测结果
+    - low_confidence_threshold: 低置信度阈值
 
     输出：
-    - predicted_class: 预测表情类别
-    - confidence: 预测置信度
+    - result: 预测结果字典
     """
     transform = create_prediction_transform()
 
@@ -66,13 +82,14 @@ def predict_uploaded_image(model, image, device):
     with torch.no_grad():
         outputs = model(image_tensor)
 
-        probabilities = torch.softmax(outputs, dim=1)
+        result = calculate_prediction_result(
+            outputs=outputs,
+            class_names=CLASS_NAMES,
+            top_k=top_k,
+            low_confidence_threshold=low_confidence_threshold,
+        )
 
-        confidence, predicted_index = torch.max(probabilities, dim=1)
-
-    predicted_class = CLASS_NAMES[predicted_index.item()]
-
-    return predicted_class, confidence.item()
+    return result
 
 
 st.title("Facial Expression Recognition Demo")
@@ -87,7 +104,7 @@ st.write(
 
 if not MODEL_PATH.exists():
     st.error(
-        "Model file not found. Please run `python -m src.train` first to generate simple_cnn.pth."
+        "Model file not found. Please run `python -m src.train` first to generate the model file."
     )
     st.stop()
 
@@ -108,12 +125,30 @@ if uploaded_file is not None:
     )
 
     if st.button("Predict emotion"):
-        predicted_class, confidence = predict_uploaded_image(
+        result = predict_uploaded_image(
             model=model,
             image=image,
             device=device,
+            top_k=3,
+            low_confidence_threshold=0.5,
         )
 
         st.subheader("Prediction Result")
-        st.write(f"Predicted emotion: **{predicted_class}**")
-        st.write(f"Confidence: **{confidence:.4f}**")
+
+        st.write(f"Predicted emotion: **{result['predicted_class']}**")
+        st.write(f"Confidence: **{result['confidence']:.4f}**")
+        st.write(f"Low confidence: **{result['is_low_confidence']}**")
+
+        if result["is_low_confidence"]:
+            st.warning(
+                "The model is not very confident about this prediction. "
+                "Please check the top-3 results instead of trusting only the first class."
+            )
+
+        st.subheader("Top-3 Predictions")
+
+        for prediction in result["top_predictions"]:
+            class_name = prediction["class_name"]
+            probability = prediction["probability"]
+
+            st.write(f"- **{class_name}**: {probability:.4f}")
