@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.append(str(PROJECT_ROOT))
 
 
+from src.face_detection import detect_and_crop_largest_face
 from src.load_model import MODEL_PATH, load_trained_model
 from src.predict import (
     CLASS_NAMES,
@@ -48,14 +49,16 @@ def predict_uploaded_image(
     device,
     top_k=3,
     low_confidence_threshold=0.5,
+    use_face_crop=True,
+    face_padding_ratio=0.2,
 ):
     """
     对用户上传的图片进行预测。
 
     这个函数在项目主线中的位置：
-    - 前面：src.predict 已经能做 top-3 和 low confidence
-    - 当前：Streamlit demo 复用同一套预测逻辑
-    - 后面：网页会显示更完整的推理结果
+    - 前面：face_detection.py 已经能检测并裁剪人脸
+    - 当前：Streamlit demo 可以选择先裁脸再预测
+    - 后面：真实应用会用这个流程处理用户上传图片
 
     输入：
     - model: 已加载好的模型
@@ -63,13 +66,32 @@ def predict_uploaded_image(
     - device: cpu 或 cuda
     - top_k: 返回前几个预测结果
     - low_confidence_threshold: 低置信度阈值
+    - use_face_crop: 是否先检测并裁剪人脸
+    - face_padding_ratio: 裁剪人脸时保留多少周围区域
 
     输出：
     - result: 预测结果字典
     """
     transform = create_prediction_transform()
 
-    image_tensor = transform(image)
+    face_crop_result = {
+        "face_found": False,
+        "face_image": image,
+        "face_box": None,
+        "num_faces": 0,
+    }
+
+    prediction_image = image
+
+    if use_face_crop:
+        face_crop_result = detect_and_crop_largest_face(
+            image=image,
+            padding_ratio=face_padding_ratio,
+        )
+
+        prediction_image = face_crop_result["face_image"]
+
+    image_tensor = transform(prediction_image)
 
     # 单张图片 shape: [1, 48, 48]
     # 模型需要 batch 维度，所以变成 [1, 1, 48, 48]
@@ -88,6 +110,12 @@ def predict_uploaded_image(
             top_k=top_k,
             low_confidence_threshold=low_confidence_threshold,
         )
+
+    result["use_face_crop"] = use_face_crop
+    result["face_found"] = face_crop_result["face_found"]
+    result["face_box"] = face_crop_result["face_box"]
+    result["num_faces"] = face_crop_result["num_faces"]
+    result["face_image"] = face_crop_result["face_image"]
 
     return result
 
@@ -110,13 +138,18 @@ if not MODEL_PATH.exists():
 
 model, device = get_model()
 
+use_face_crop = st.checkbox(
+    "Use face detection / face crop before prediction",
+    value=True,
+)
+
 uploaded_file = st.file_uploader(
     "Upload an image",
     type=["jpg", "jpeg", "png"],
 )
 
 if uploaded_file is not None:
-    image = Image.open(uploaded_file)
+    image = Image.open(uploaded_file).convert("RGB")
 
     st.image(
         image,
@@ -131,6 +164,28 @@ if uploaded_file is not None:
             device=device,
             top_k=3,
             low_confidence_threshold=0.5,
+            use_face_crop=use_face_crop,
+            face_padding_ratio=0.2,
+        )
+
+        st.subheader("Face Detection")
+
+        st.write(f"Use face crop: **{result['use_face_crop']}**")
+        st.write(f"Face found: **{result['face_found']}**")
+        st.write(f"Number of faces: **{result['num_faces']}**")
+        st.write(f"Face box: **{result['face_box']}**")
+
+        if result["use_face_crop"] and result["face_found"]:
+            st.success("Face detected. The cropped face below was used for prediction.")
+        elif result["use_face_crop"] and not result["face_found"]:
+            st.warning(
+                "No face was detected. The original uploaded image was used for prediction instead."
+            )
+
+        st.image(
+            result["face_image"],
+            caption="Image used for prediction",
+            width=180,
         )
 
         st.subheader("Prediction Result")

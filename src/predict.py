@@ -4,6 +4,7 @@ import torch
 from PIL import Image
 from torchvision import transforms
 
+from src.face_detection import detect_and_crop_largest_face
 from src.load_model import MODEL_PATH, load_trained_model
 
 
@@ -116,6 +117,8 @@ def predict_image(
     device,
     top_k=3,
     low_confidence_threshold=0.5,
+    use_face_crop=False,
+    face_padding_ratio=0.2,
 ):
     """
     对单张图片进行表情预测。
@@ -127,9 +130,17 @@ def predict_image(
     - device: cpu 或 cuda
     - top_k: 返回前几个最可能类别
     - low_confidence_threshold: 低置信度阈值
+    - use_face_crop: 是否先检测并裁剪人脸
+    - face_padding_ratio: 裁剪人脸时保留多少周围区域
 
     输出：
-    - 一个字典，包含图片路径、预测类别、置信度、top-k 预测和低置信度状态
+    - 一个字典，包含：
+      - 图片路径
+      - 预测类别
+      - 置信度
+      - top-k 预测
+      - 低置信度状态
+      - 人脸检测状态
     """
     if not image_path.exists():
         raise FileNotFoundError(f"Image file not found: {image_path}")
@@ -138,7 +149,24 @@ def predict_image(
 
     image = Image.open(image_path)
 
-    image_tensor = transform(image)
+    face_crop_result = {
+        "face_found": False,
+        "face_image": image,
+        "face_box": None,
+        "num_faces": 0,
+    }
+
+    prediction_image = image
+
+    if use_face_crop:
+        face_crop_result = detect_and_crop_largest_face(
+            image=image,
+            padding_ratio=face_padding_ratio,
+        )
+
+        prediction_image = face_crop_result["face_image"]
+
+    image_tensor = transform(prediction_image)
 
     # 模型需要 batch 维度。
     # 单张图片原本是 [1, 48, 48]，
@@ -160,6 +188,10 @@ def predict_image(
         )
 
     prediction_result["image_path"] = str(image_path)
+    prediction_result["use_face_crop"] = use_face_crop
+    prediction_result["face_found"] = face_crop_result["face_found"]
+    prediction_result["face_box"] = face_crop_result["face_box"]
+    prediction_result["num_faces"] = face_crop_result["num_faces"]
 
     return prediction_result
 
@@ -186,11 +218,17 @@ def main():
         device=device,
         top_k=3,
         low_confidence_threshold=0.5,
+        use_face_crop=True,
+        face_padding_ratio=0.2,
     )
 
     print("Single image prediction")
     print("-" * 40)
     print(f"Image path: {result['image_path']}")
+    print(f"Use face crop: {result['use_face_crop']}")
+    print(f"Face found: {result['face_found']}")
+    print(f"Number of faces: {result['num_faces']}")
+    print(f"Face box: {result['face_box']}")
     print(f"Predicted class: {result['predicted_class']}")
     print(f"Confidence: {result['confidence']:.4f}")
     print(f"Low confidence: {result['is_low_confidence']}")
