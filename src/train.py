@@ -1,3 +1,4 @@
+import argparse
 import csv
 import json
 from pathlib import Path
@@ -15,44 +16,177 @@ from src.evaluate import evaluate_accuracy
 from src.model import ImprovedCNN, ResNet18ExpressionModel, SimpleCNN
 
 
-# 项目根目录：facial-expression-recognition-demo/
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
-# 模型权重输出目录
 MODEL_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "models"
 
-# 不同模型保存成不同文件，避免覆盖 baseline
 MODEL_OUTPUT_FILENAMES = {
     "simple_cnn": "simple_cnn.pth",
     "improved_cnn": "improved_cnn.pth",
     "resnet18": "resnet18.pth",
 }
 
-# 训练曲线图片输出目录和路径
 FIGURES_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "figures"
 TRAINING_CURVES_PATH = FIGURES_OUTPUT_DIR / "training_curves.png"
 
-# 训练历史日志输出目录和路径
 LOGS_OUTPUT_DIR = PROJECT_ROOT / "outputs" / "logs"
 TRAINING_HISTORY_PATH = LOGS_OUTPUT_DIR / "training_history.json"
+TRAINING_CONFIG_PATH = LOGS_OUTPUT_DIR / "training_config.json"
 
-# 实验结果总表路径
 EXPERIMENT_RESULTS_PATH = LOGS_OUTPUT_DIR / "experiment_results.csv"
+
+
+def create_arg_parser():
+    """
+    创建训练脚本的命令行参数解析器。
+    """
+    parser = argparse.ArgumentParser(
+        description="Train a facial expression recognition model.",
+    )
+
+    parser.add_argument(
+        "--model",
+        dest="model_name",
+        choices=list(MODEL_OUTPUT_FILENAMES.keys()),
+        default="resnet18",
+        help="Model architecture to train.",
+    )
+
+    parser.add_argument(
+        "--epochs",
+        dest="num_epochs",
+        type=int,
+        default=3,
+        help="Number of training epochs.",
+    )
+
+    parser.add_argument(
+        "--batch-size",
+        dest="batch_size",
+        type=int,
+        default=32,
+        help="Training batch size.",
+    )
+
+    parser.add_argument(
+        "--lr",
+        dest="learning_rate",
+        type=float,
+        default=0.001,
+        help="Learning rate for Adam optimizer.",
+    )
+
+    parser.add_argument(
+        "--validation-ratio",
+        dest="validation_ratio",
+        type=float,
+        default=0.2,
+        help="Ratio of training data used for validation.",
+    )
+
+    parser.add_argument(
+        "--random-seed",
+        dest="random_seed",
+        type=int,
+        default=42,
+        help="Random seed for train/validation split.",
+    )
+
+    parser.add_argument(
+        "--pretrained",
+        dest="use_pretrained",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use ImageNet pretrained weights when training ResNet18.",
+    )
+
+    parser.add_argument(
+        "--use-augmentation",
+        dest="use_augmentation",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Use data augmentation for the training set.",
+    )
+
+    parser.add_argument(
+        "--device",
+        dest="device",
+        choices=["auto", "cpu", "cuda"],
+        default="auto",
+        help="Device for training. Use auto to select cuda when available.",
+    )
+
+    return parser
+
+
+def parse_training_args(args=None):
+    """
+    解析训练命令行参数。
+    """
+    parser = create_arg_parser()
+
+    return parser.parse_args(args)
+
+
+def select_device(device_name="auto"):
+    """
+    根据用户选择返回 PyTorch device。
+    """
+    if device_name == "auto":
+        if torch.cuda.is_available():
+            return torch.device("cuda")
+
+        return torch.device("cpu")
+
+    if device_name == "cpu":
+        return torch.device("cpu")
+
+    if device_name == "cuda":
+        if not torch.cuda.is_available():
+            raise RuntimeError(
+                "CUDA was requested, but torch.cuda.is_available() is False."
+            )
+
+        return torch.device("cuda")
+
+    raise ValueError("device_name must be one of: auto, cpu, cuda")
+
+
+def create_training_config(args, device, effective_use_pretrained):
+    """
+    创建本次训练的配置记录。
+    """
+    config = {
+        "model_name": args.model_name,
+        "num_epochs": args.num_epochs,
+        "batch_size": args.batch_size,
+        "learning_rate": args.learning_rate,
+        "validation_ratio": args.validation_ratio,
+        "random_seed": args.random_seed,
+        "use_augmentation": args.use_augmentation,
+        "use_pretrained": effective_use_pretrained,
+        "requested_device": args.device,
+        "actual_device": str(device),
+    }
+
+    return config
+
+
+def save_training_config(config, output_path):
+    """
+    保存训练配置到 JSON 文件。
+    """
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(output_path, "w", encoding="utf-8") as file:
+        json.dump(config, file, indent=4)
+
+    return output_path
 
 
 def create_model(model_name, num_classes=7, use_pretrained=False):
     """
     根据 model_name 创建对应的模型。
-
-    支持的模型：
-    - simple_cnn
-    - improved_cnn
-    - resnet18
-
-    use_pretrained:
-    - 主要给 ResNet18 使用
-    - False：不下载预训练权重，适合测试和离线环境
-    - True：使用 ImageNet 预训练权重，适合正式 transfer learning
     """
     if model_name == "simple_cnn":
         return SimpleCNN(num_classes=num_classes)
@@ -128,13 +262,6 @@ def train_model(
 ):
     """
     训练模型多个 epoch，并在每个 epoch 后评估 validation accuracy。
-
-    当前这个函数负责：
-    1. 每个 epoch 训练一次模型
-    2. 每个 epoch 后用 validation set 评估
-    3. 记录 train_loss 和 val_accuracy
-    4. 记录 best_val_accuracy 和 best_epoch
-    5. 如果 validation accuracy 创新高，就保存当前模型
     """
     history = {
         "train_loss": [],
@@ -247,8 +374,6 @@ def create_experiment_summary(
 ):
     """
     根据一次训练结果创建实验摘要。
-
-    这个函数会整理出 experiment_results.csv 里的一行。
     """
     val_accuracy_history = history["val_accuracy"]
 
@@ -293,21 +418,40 @@ def save_experiment_summary(summary, output_path):
     return output_path
 
 
-def main():
+def main(cli_args=None):
     """
     多 epoch 训练 + validation 评估 + 保存 best model 主流程。
     """
-    device = torch.device("cpu")
+    args = parse_training_args(cli_args)
 
-    model_name = "resnet18"
-    use_pretrained = True
+    device = select_device(device_name=args.device)
 
-    num_epochs = 3
-    batch_size = 32
-    learning_rate = 0.001
-    validation_ratio = 0.2
-    random_seed = 42
-    use_augmentation = True
+    model_name = args.model_name
+    use_pretrained = args.use_pretrained and model_name == "resnet18"
+
+    if args.use_pretrained and model_name != "resnet18":
+        print(
+            "Pretrained weights are only used for ResNet18. "
+            f"Ignoring --pretrained for model: {model_name}"
+        )
+
+    num_epochs = args.num_epochs
+    batch_size = args.batch_size
+    learning_rate = args.learning_rate
+    validation_ratio = args.validation_ratio
+    random_seed = args.random_seed
+    use_augmentation = args.use_augmentation
+
+    training_config = create_training_config(
+        args=args,
+        device=device,
+        effective_use_pretrained=use_pretrained,
+    )
+
+    saved_training_config_path = save_training_config(
+        config=training_config,
+        output_path=TRAINING_CONFIG_PATH,
+    )
 
     train_loader, val_loader, _ = create_train_val_test_loaders(
         batch_size=batch_size,
@@ -340,9 +484,11 @@ def main():
     print(f"Batch size: {batch_size}")
     print(f"Learning rate: {learning_rate}")
     print(f"Validation ratio: {validation_ratio}")
+    print(f"Random seed: {random_seed}")
     print(f"Use augmentation: {use_augmentation}")
     print(f"Train subset size: {len(train_loader.dataset)}")
     print(f"Validation subset size: {len(val_loader.dataset)}")
+    print(f"Training config saved to: {saved_training_config_path}")
     print("-" * 40)
 
     history = train_model(
