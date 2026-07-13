@@ -109,6 +109,46 @@ def create_arg_parser():
     )
 
     parser.add_argument(
+        "--class-weights",
+        dest="use_class_weights",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Use class weights in CrossEntropyLoss to reduce class imbalance.",
+    )
+
+    parser.add_argument(
+        "--scheduler",
+        dest="scheduler_name",
+        choices=["none", "reduce_on_plateau", "cosine"],
+        default="none",
+        help="Learning rate scheduler to use.",
+    )
+
+    parser.add_argument(
+        "--scheduler-patience",
+        dest="scheduler_patience",
+        type=int,
+        default=3,
+        help="Patience for ReduceLROnPlateau scheduler.",
+    )
+
+    parser.add_argument(
+        "--scheduler-factor",
+        dest="scheduler_factor",
+        type=float,
+        default=0.5,
+        help="Learning rate reduction factor for ReduceLROnPlateau scheduler.",
+    )
+
+    parser.add_argument(
+        "--early-stopping-patience",
+        dest="early_stopping_patience",
+        type=int,
+        default=0,
+        help="Stop training if validation accuracy does not improve for this many epochs. Use 0 to disable.",
+    )
+
+    parser.add_argument(
         "--device",
         dest="device",
         choices=["auto", "cpu", "cuda"],
@@ -152,10 +192,144 @@ def select_device(device_name="auto"):
     raise ValueError("device_name must be one of: auto, cpu, cuda")
 
 
-def create_training_config(args, device, effective_use_pretrained):
+def collect_labels_from_dataset(dataset):
+    """
+    从训练 dataset 中收集标签。
+    """
+    if hasattr(dataset, "indices") and hasattr(dataset, "dataset"):
+        base_dataset = dataset.dataset
+
+        if hasattr(base_dataset, "targets"):
+            labels = []
+
+            for index in dataset.indices:
+                labels.append(int(base_dataset.targets[index]))
+
+            return labels
+
+    if hasattr(dataset, "targets"):
+        return [int(label) for label in dataset.targets]
+
+    labels = []
+
+    for _, label in dataset:
+        labels.append(int(label))
+
+    return labels
+
+
+def calculate_class_weights_from_dataset(dataset, num_classes, device):
+    """
+    根据训练集类别分布计算 class weights。
+    """
+    labels = collect_labels_from_dataset(dataset)
+
+    class_counts = torch.zeros(num_classes, dtype=torch.float32)
+
+    for label in labels:
+        class_counts[label] += 1
+
+    if torch.any(class_counts == 0):
+        raise ValueError(
+            f"At least one class has zero samples. Class counts: {class_counts.tolist()}"
+        )
+
+    total_samples = class_counts.sum()
+    class_weights = total_samples / (num_classes * class_counts)
+
+    return class_weights.to(device)
+
+
+def create_loss_function(use_class_weights, train_dataset, num_classes, device):
+    """
+    创建训练使用的 loss function。
+    """
+    if not use_class_weights:
+        return nn.CrossEntropyLoss(), None
+
+    class_weights = calculate_class_weights_from_dataset(
+        dataset=train_dataset,
+        num_classes=num_classes,
+        device=device,
+    )
+
+    loss_fn = nn.CrossEntropyLoss(weight=class_weights)
+
+    return loss_fn, class_weights
+
+
+def create_scheduler(
+    scheduler_name,
+    optimizer,
+    num_epochs,
+    scheduler_patience=3,
+    scheduler_factor=0.5,
+):
+    """
+    创建 learning rate scheduler。
+    """
+    if scheduler_name == "none":
+        return None
+
+    if scheduler_name == "reduce_on_plateau":
+        return torch.optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer,
+            mode="max",
+            factor=scheduler_factor,
+            patience=scheduler_patience,
+        )
+
+    if scheduler_name == "cosine":
+        return torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=num_epochs,
+        )
+
+    raise ValueError("scheduler_name must be one of: none, reduce_on_plateau, cosine")
+
+
+def step_scheduler(scheduler, scheduler_name, val_accuracy):
+    """
+    每个 epoch 结束后更新 scheduler。
+    """
+    if scheduler is None:
+        return
+
+    if scheduler_name == "reduce_on_plateau":
+        scheduler.step(val_accuracy)
+        return
+
+    scheduler.step()
+
+
+def should_stop_early(epochs_without_improvement, early_stopping_patience):
+    """
+    判断是否触发 early stopping。
+
+    early_stopping_patience:
+    - 0 表示关闭 early stopping
+    - 大于 0 表示允许 validation accuracy 连续多少个 epoch 不提升
+    """
+    if early_stopping_patience <= 0:
+        return False
+
+    return epochs_without_improvement >= early_stopping_patience
+
+
+def create_training_config(
+    args,
+    device,
+    effective_use_pretrained,
+    class_weights=None,
+):
     """
     创建本次训练的配置记录。
     """
+    if class_weights is None:
+        class_weights_list = None
+    else:
+        class_weights_list = class_weights.detach().cpu().tolist()
+
     config = {
         "model_name": args.model_name,
         "num_epochs": args.num_epochs,
@@ -165,6 +339,12 @@ def create_training_config(args, device, effective_use_pretrained):
         "random_seed": args.random_seed,
         "use_augmentation": args.use_augmentation,
         "use_pretrained": effective_use_pretrained,
+        "use_class_weights": args.use_class_weights,
+        "class_weights": class_weights_list,
+        "scheduler": args.scheduler_name,
+        "scheduler_patience": args.scheduler_patience,
+        "scheduler_factor": args.scheduler_factor,
+        "early_stopping_patience": args.early_stopping_patience,
         "requested_device": args.device,
         "actual_device": str(device),
     }
@@ -259,6 +439,9 @@ def train_model(
     device,
     num_epochs,
     best_model_path=None,
+    scheduler=None,
+    scheduler_name="none",
+    early_stopping_patience=0,
 ):
     """
     训练模型多个 epoch，并在每个 epoch 后评估 validation accuracy。
@@ -266,11 +449,18 @@ def train_model(
     history = {
         "train_loss": [],
         "val_accuracy": [],
+        "learning_rate": [],
         "best_val_accuracy": -1.0,
         "best_epoch": 0,
+        "stopped_early": False,
+        "stopped_epoch": None,
     }
 
+    epochs_without_improvement = 0
+
     for epoch in range(num_epochs):
+        current_learning_rate = optimizer.param_groups[0]["lr"]
+
         average_loss = train_one_epoch(
             model=model,
             train_loader=train_loader,
@@ -287,10 +477,14 @@ def train_model(
 
         history["train_loss"].append(average_loss)
         history["val_accuracy"].append(val_accuracy)
+        history["learning_rate"].append(current_learning_rate)
 
-        if val_accuracy > history["best_val_accuracy"]:
+        improved = val_accuracy > history["best_val_accuracy"]
+
+        if improved:
             history["best_val_accuracy"] = val_accuracy
             history["best_epoch"] = epoch + 1
+            epochs_without_improvement = 0
 
             if best_model_path is not None:
                 save_model(
@@ -302,12 +496,39 @@ def train_model(
                     f"Best model updated at epoch {epoch + 1} | "
                     f"best val accuracy: {val_accuracy:.4f}"
                 )
+        else:
+            epochs_without_improvement += 1
+
+        step_scheduler(
+            scheduler=scheduler,
+            scheduler_name=scheduler_name,
+            val_accuracy=val_accuracy,
+        )
+
+        next_learning_rate = optimizer.param_groups[0]["lr"]
 
         print(
             f"Epoch {epoch + 1}/{num_epochs} | "
             f"loss: {average_loss:.4f} | "
-            f"val accuracy: {val_accuracy:.4f}"
+            f"val accuracy: {val_accuracy:.4f} | "
+            f"lr: {current_learning_rate:.8f} -> {next_learning_rate:.8f} | "
+            f"no improvement: {epochs_without_improvement}"
         )
+
+        if should_stop_early(
+            epochs_without_improvement=epochs_without_improvement,
+            early_stopping_patience=early_stopping_patience,
+        ):
+            history["stopped_early"] = True
+            history["stopped_epoch"] = epoch + 1
+
+            print(
+                f"Early stopping triggered at epoch {epoch + 1}. "
+                f"Best epoch: {history['best_epoch']} | "
+                f"best val accuracy: {history['best_val_accuracy']:.4f}"
+            )
+
+            break
 
     return history
 
@@ -347,6 +568,9 @@ def save_training_curves(history, output_path):
     plt.plot(epochs, history["train_loss"], marker="o", label="Train Loss")
     plt.plot(epochs, history["val_accuracy"], marker="o", label="Validation Accuracy")
 
+    if "learning_rate" in history:
+        plt.plot(epochs, history["learning_rate"], marker="o", label="Learning Rate")
+
     plt.title("Training Curves")
     plt.xlabel("Epoch")
     plt.ylabel("Value")
@@ -371,6 +595,9 @@ def create_experiment_summary(
     use_augmentation,
     use_pretrained,
     model_output_path,
+    use_class_weights=False,
+    scheduler_name="none",
+    early_stopping_patience=0,
 ):
     """
     根据一次训练结果创建实验摘要。
@@ -383,11 +610,17 @@ def create_experiment_summary(
     summary = {
         "model_name": model_name,
         "num_epochs": num_epochs,
+        "actual_epochs": len(history["train_loss"]),
         "batch_size": batch_size,
         "learning_rate": learning_rate,
         "validation_ratio": validation_ratio,
         "use_augmentation": use_augmentation,
         "use_pretrained": use_pretrained,
+        "use_class_weights": use_class_weights,
+        "scheduler": scheduler_name,
+        "early_stopping_patience": early_stopping_patience,
+        "stopped_early": history.get("stopped_early", False),
+        "stopped_epoch": history.get("stopped_epoch", None),
         "final_val_accuracy": final_val_accuracy,
         "best_val_accuracy": best_val_accuracy,
         "model_path": str(model_output_path),
@@ -441,17 +674,9 @@ def main(cli_args=None):
     validation_ratio = args.validation_ratio
     random_seed = args.random_seed
     use_augmentation = args.use_augmentation
-
-    training_config = create_training_config(
-        args=args,
-        device=device,
-        effective_use_pretrained=use_pretrained,
-    )
-
-    saved_training_config_path = save_training_config(
-        config=training_config,
-        output_path=TRAINING_CONFIG_PATH,
-    )
+    use_class_weights = args.use_class_weights
+    scheduler_name = args.scheduler_name
+    early_stopping_patience = args.early_stopping_patience
 
     train_loader, val_loader, _ = create_train_val_test_loaders(
         batch_size=batch_size,
@@ -468,11 +693,36 @@ def main(cli_args=None):
 
     model_output_path = get_model_output_path(model_name=model_name)
 
-    loss_fn = nn.CrossEntropyLoss()
+    loss_fn, class_weights = create_loss_function(
+        use_class_weights=use_class_weights,
+        train_dataset=train_loader.dataset,
+        num_classes=7,
+        device=device,
+    )
+
+    training_config = create_training_config(
+        args=args,
+        device=device,
+        effective_use_pretrained=use_pretrained,
+        class_weights=class_weights,
+    )
+
+    saved_training_config_path = save_training_config(
+        config=training_config,
+        output_path=TRAINING_CONFIG_PATH,
+    )
 
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=learning_rate,
+    )
+
+    scheduler = create_scheduler(
+        scheduler_name=scheduler_name,
+        optimizer=optimizer,
+        num_epochs=num_epochs,
+        scheduler_patience=args.scheduler_patience,
+        scheduler_factor=args.scheduler_factor,
     )
 
     print("Training and validation started")
@@ -486,6 +736,15 @@ def main(cli_args=None):
     print(f"Validation ratio: {validation_ratio}")
     print(f"Random seed: {random_seed}")
     print(f"Use augmentation: {use_augmentation}")
+    print(f"Use class weights: {use_class_weights}")
+
+    if class_weights is not None:
+        print(f"Class weights: {class_weights.detach().cpu().tolist()}")
+
+    print(f"Scheduler: {scheduler_name}")
+    print(f"Scheduler patience: {args.scheduler_patience}")
+    print(f"Scheduler factor: {args.scheduler_factor}")
+    print(f"Early stopping patience: {early_stopping_patience}")
     print(f"Train subset size: {len(train_loader.dataset)}")
     print(f"Validation subset size: {len(val_loader.dataset)}")
     print(f"Training config saved to: {saved_training_config_path}")
@@ -500,6 +759,9 @@ def main(cli_args=None):
         device=device,
         num_epochs=num_epochs,
         best_model_path=model_output_path,
+        scheduler=scheduler,
+        scheduler_name=scheduler_name,
+        early_stopping_patience=early_stopping_patience,
     )
 
     saved_history_path = save_training_history(
@@ -521,6 +783,9 @@ def main(cli_args=None):
         validation_ratio=validation_ratio,
         use_augmentation=use_augmentation,
         use_pretrained=use_pretrained,
+        use_class_weights=use_class_weights,
+        scheduler_name=scheduler_name,
+        early_stopping_patience=early_stopping_patience,
         model_output_path=model_output_path,
     )
 
@@ -533,6 +798,8 @@ def main(cli_args=None):
     print(f"Best model saved to: {model_output_path}")
     print(f"Best epoch: {history['best_epoch']}")
     print(f"Best validation accuracy: {history['best_val_accuracy']:.4f}")
+    print(f"Stopped early: {history['stopped_early']}")
+    print(f"Stopped epoch: {history['stopped_epoch']}")
     print(f"Training history saved to: {saved_history_path}")
     print(f"Training curves saved to: {saved_curves_path}")
     print(f"Experiment results saved to: {saved_experiment_results_path}")
