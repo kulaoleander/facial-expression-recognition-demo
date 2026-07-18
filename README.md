@@ -2,7 +2,7 @@
 
 An end-to-end deep learning and computer vision project for facial expression recognition.
 
-This project predicts one of seven facial expressions from face images and includes a complete AI application pipeline: dataset inspection, PyTorch data loading, CNN baselines, transfer learning with ResNet18, training and validation, final test evaluation, model saving/loading, single-image prediction, OpenCV face detection, Streamlit demo, and pytest-based automated tests.
+This project predicts one of seven facial expressions from face images and includes a complete AI application pipeline: dataset inspection, PyTorch data loading, CNN baselines, transfer learning with ResNet18, configurable training, class imbalance handling, learning rate scheduling, early stopping, final test evaluation, model saving/loading, single-image prediction, OpenCV face detection, Streamlit demo, and pytest-based automated tests.
 
 The goal of this project is not to claim state-of-the-art performance, but to build a complete, explainable, reproducible AI application that can be shown on GitHub, discussed in interviews, and extended into real-time computer vision applications.
 
@@ -34,7 +34,9 @@ Model output format:
 logits shape: [batch_size, 7]
 ```
 
-The project started with a simple CNN baseline and was gradually improved with validation/test split, data augmentation, ImprovedCNN, transfer learning with ResNet18, robust prediction outputs, OpenCV-based face crop support, and final test set evaluation.
+The project started with a simple CNN baseline and was gradually improved with validation/test split, data augmentation, ImprovedCNN, transfer learning with ResNet18, robust prediction outputs, OpenCV-based face crop support, final test set evaluation, and a more reproducible training pipeline.
+
+Version 1.2 upgrades the training workflow with command-line training configuration, automatic CPU/CUDA device selection, class weights for imbalanced classes, learning rate scheduling, early stopping, GPU training, and expanded pytest coverage.
 
 ---
 
@@ -47,10 +49,16 @@ The project started with a simple CNN baseline and was gradually improved with v
 - SimpleCNN baseline model
 - ImprovedCNN with BatchNorm and Dropout
 - ResNet18 transfer learning model
+- Configurable command-line training script
+- Automatic CPU/CUDA device selection
+- Class weights for imbalanced training data
+- Learning rate scheduler support
+- Early stopping support
 - Training loop with `CrossEntropyLoss` and Adam optimizer
 - Validation accuracy tracking
 - Best model checkpoint saving
 - Final test set evaluation
+- Training configuration saved as JSON
 - Training history saved as JSON
 - Training curves saved as PNG
 - Experiment comparison logging as CSV
@@ -78,64 +86,6 @@ The project started with a simple CNN baseline and was gradually improved with v
 - scikit-learn
 - Streamlit
 - pytest
-
----
-
-## Project Structure
-
-```text
-facial-expression-recognition-demo/
-├── app/
-│   ├── README.md
-│   └── streamlit_app.py
-├── data/
-│   ├── README.md
-│   ├── raw/
-│   │   ├── train/
-│   │   └── test/
-│   └── processed/
-├── docs/
-│   ├── baseline_v0.1.md
-│   └── experiment_comparison.md
-├── notebooks/
-│   └── README.md
-├── outputs/
-│   ├── README.md
-│   ├── figures/
-│   ├── logs/
-│   └── models/
-├── src/
-│   ├── __init__.py
-│   ├── data_loader.py
-│   ├── environment_check.py
-│   ├── evaluate.py
-│   ├── evaluate_detailed.py
-│   ├── face_detection.py
-│   ├── final_test_evaluation.py
-│   ├── inspect_dataset.py
-│   ├── load_model.py
-│   ├── model.py
-│   ├── predict.py
-│   └── train.py
-├── tests/
-│   ├── README.md
-│   ├── test_data_loader.py
-│   ├── test_environment_check.py
-│   ├── test_evaluate.py
-│   ├── test_evaluate_detailed.py
-│   ├── test_face_detection.py
-│   ├── test_final_test_evaluation.py
-│   ├── test_inspect_dataset.py
-│   ├── test_load_model.py
-│   ├── test_model.py
-│   ├── test_predict.py
-│   └── test_train.py
-├── .gitignore
-├── README.md
-└── requirements.txt
-```
-
-Note: `data/raw/`, `data/processed/`, trained model weights, generated logs, and generated figures are ignored by Git and are not uploaded to GitHub.
 
 ---
 
@@ -186,17 +136,11 @@ Install dependencies:
 pip install -r requirements.txt
 ```
 
----
-
-## Environment Check
-
-Run:
+Run the environment check:
 
 ```powershell
 python -m src.environment_check
 ```
-
-This checks whether the main Python dependencies can be imported successfully.
 
 ---
 
@@ -227,51 +171,59 @@ size: (48, 48)
 
 ## Train the Model
 
-Run:
+Basic training command:
 
 ```powershell
 python -m src.train
 ```
 
-The training script supports multiple model choices in code:
+The training script also supports configurable command-line arguments.
 
-```python
-model_name = "simple_cnn"
-model_name = "improved_cnn"
-model_name = "resnet18"
+Example formal ResNet18 training command:
+
+```powershell
+python -m src.train --model resnet18 --epochs 50 --batch-size 32 --lr 0.001 --pretrained --use-augmentation --class-weights --scheduler reduce_on_plateau --scheduler-patience 4 --scheduler-factor 0.5 --early-stopping-patience 8 --device cuda
 ```
 
-For ResNet18 transfer learning:
-
-```python
-model_name = "resnet18"
-use_pretrained = True
-```
-
-The training pipeline:
+Main training options:
 
 ```text
-Dataset
-↓
-Train / validation / test split
-↓
-Data augmentation on training set
-↓
-Model training
-↓
-Validation accuracy tracking
-↓
-Best model checkpoint saving
-↓
-Training history and curve saving
-↓
-Experiment result logging
+--model simple_cnn | improved_cnn | resnet18
+--epochs
+--batch-size
+--lr
+--pretrained / --no-pretrained
+--use-augmentation / --no-use-augmentation
+--class-weights / --no-class-weights
+--scheduler none | reduce_on_plateau | cosine
+--scheduler-patience
+--scheduler-factor
+--early-stopping-patience
+--device auto | cpu | cuda
+```
+
+The formal v1.2 training run used:
+
+```text
+Model: resnet18
+Pretrained weights: True
+Epochs: 50
+Batch size: 32
+Learning rate: 0.001
+Data augmentation: True
+Class weights: True
+Scheduler: reduce_on_plateau
+Scheduler patience: 4
+Scheduler factor: 0.5
+Early stopping patience: 8
+Device: CUDA / Tesla T4
 ```
 
 Generated outputs include:
 
 ```text
-outputs/models/
+outputs/models/resnet18.pth
+outputs/logs/training_config.json
 outputs/logs/training_history.json
 outputs/logs/experiment_results.csv
 outputs/figures/training_curves.png
@@ -281,45 +233,48 @@ outputs/figures/training_curves.png
 
 ## Model Comparison
 
-A controlled experiment was run using the same validation split and training configuration.
+A controlled experiment was run using the same validation split and training configuration where applicable.
 
-| Model | Validation Accuracy |
+| Model / Version | Validation Accuracy |
 |---|---:|
-| SimpleCNN | 0.4142 |
+| SimpleCNN baseline | 0.4142 |
 | ImprovedCNN | 0.4644 |
 | ResNet18 from scratch | 0.4715 |
-| Pretrained ResNet18 | 0.5078 |
+| Pretrained ResNet18, v1.1 short training | 0.5078 |
+| Pretrained ResNet18, v1.2 GPU training + class weights + scheduler | 0.6314 |
 
-The pretrained ResNet18 model achieved the best validation accuracy in this project.
+The v1.2 pretrained ResNet18 model achieved the best validation accuracy in this project.
 
-This shows the value of transfer learning: instead of learning visual features from scratch, the model can reuse general image features learned from large-scale image data and fine-tune them for facial expression recognition.
+This shows the value of transfer learning and training engineering: instead of learning visual features from scratch, the model reuses general image features learned from large-scale image data and fine-tunes them for facial expression recognition. The v1.2 training improvements also made the experiment more reproducible and improved minority-class handling.
 
 ---
 
 ## Final Test Evaluation
 
-After selecting the best model based on validation accuracy, the pretrained ResNet18 model was evaluated once on the held-out test set.
+After selecting the best model based on validation accuracy, the v1.2 pretrained ResNet18 model was evaluated once on the held-out test set.
 
 | Metric | Value |
 |---|---:|
 | Test samples | 7178 |
-| Test accuracy | 0.5059 |
-| Macro average F1-score | 0.3993 |
-| Weighted average F1-score | 0.4825 |
+| Test accuracy | 0.6257 |
+| Macro average F1-score | 0.5996 |
+| Weighted average F1-score | 0.6224 |
 
 Per-class accuracy:
 
 | Class | Accuracy |
 |---|---:|
-| angry | 0.4635 |
-| disgust | 0.0000 |
-| fear | 0.0889 |
-| happy | 0.7880 |
-| neutral | 0.5053 |
-| sad | 0.4106 |
-| surprise | 0.6775 |
+| angry | 0.5532 |
+| disgust | 0.7027 |
+| fear | 0.3701 |
+| happy | 0.8005 |
+| neutral | 0.6667 |
+| sad | 0.4747 |
+| surprise | 0.8063 |
 
-The final test result shows that the model performs best on classes such as happy and surprise, while minority or visually ambiguous classes such as disgust and fear remain challenging. This is a realistic limitation of facial expression recognition on low-resolution FER2013-style data.
+Compared with the earlier v1.1 result, the v1.2 training run improved test accuracy from 0.5059 to 0.6257 and macro average F1-score from 0.3993 to 0.5996. The `disgust` class improved substantially after adding class weights, showing that class imbalance handling made the model pay more attention to minority classes.
+
+The final test result still shows that `fear` and `sad` remain relatively challenging classes, which is realistic for low-resolution FER2013-style facial expression recognition.
 
 The final test evaluation outputs are saved locally to:
 
@@ -327,26 +282,6 @@ The final test evaluation outputs are saved locally to:
 outputs/logs/final_test_metrics.json
 outputs/figures/final_test_confusion_matrix.png
 ```
-
----
-
-## Detailed Evaluation
-
-Run:
-
-```powershell
-python -m src.evaluate_detailed
-```
-
-This generates:
-
-- overall accuracy
-- classification report
-- per-class precision, recall, and F1-score
-- confusion matrix
-- per-class accuracy
-
-This is useful because overall accuracy alone can hide weak classes, especially when the dataset is imbalanced.
 
 ---
 
@@ -375,28 +310,6 @@ outputs/models/resnet18.pth
 
 ---
 
-## Load the Saved Model
-
-Run:
-
-```powershell
-python -m src.load_model
-```
-
-By default, the project now loads the ResNet18 model from:
-
-```text
-outputs/models/resnet18.pth
-```
-
-Expected output shape:
-
-```text
-torch.Size([32, 7])
-```
-
----
-
 ## Single Image Prediction
 
 Run:
@@ -405,7 +318,7 @@ Run:
 python -m src.predict
 ```
 
-By default, prediction now loads the ResNet18 model from `outputs/models/resnet18.pth`.
+By default, prediction loads the ResNet18 model from `outputs/models/resnet18.pth`.
 
 The prediction output includes:
 
@@ -416,24 +329,6 @@ The prediction output includes:
 - face crop status
 - number of detected faces
 - selected face box
-
-Example output:
-
-```text
-Single image prediction
-----------------------------------------
-Use face crop: True
-Face found: False
-Number of faces: 0
-Face box: None
-Predicted class: happy
-Confidence: 0.7702
-Low confidence: False
-Top predictions:
-- happy: 0.7702
-- angry: 0.0646
-- neutral: 0.0569
-```
 
 If no face is detected, the system falls back to the original image instead of crashing.
 
@@ -510,7 +405,7 @@ python -m pytest
 Current local test result:
 
 ```text
-85 passed
+106 passed, 1 skipped
 ```
 
 Current test coverage includes:
@@ -521,10 +416,17 @@ Current test coverage includes:
 - data augmentation behavior
 - model output shape
 - SimpleCNN / ImprovedCNN / ResNet18 model creation
+- configurable training argument parsing
+- automatic CPU/CUDA device selection
+- class weight calculation
+- weighted loss function creation
+- learning rate scheduler creation
+- early stopping logic
 - training loop
 - model saving
 - model loading
 - ResNet18 loading consistency
+- training configuration saving
 - training history saving
 - training curve saving
 - experiment summary saving
@@ -558,13 +460,17 @@ Improved CNN
 ↓
 Transfer learning with ResNet18
 ↓
-Training and validation
+Configurable training
+↓
+Class weights for imbalance handling
+↓
+Learning rate scheduling
+↓
+Early stopping support
 ↓
 Best model checkpoint saving
 ↓
 Final test evaluation
-↓
-Detailed evaluation
 ↓
 Single-image prediction
 ↓
@@ -587,6 +493,9 @@ This project helped me practice:
 - using train / validation / test split correctly
 - comparing models with controlled experiments
 - using transfer learning with ResNet18
+- handling class imbalance with class weights
+- using learning rate scheduling during training
+- using early stopping to make longer training safer
 - evaluating classification models beyond overall accuracy
 - using a held-out test set for final model evaluation
 - building a simple AI web demo with Streamlit
@@ -604,7 +513,7 @@ Current limitations:
 - FER2013-style 48x48 grayscale images are low-resolution.
 - Facial expression labels can be ambiguous.
 - Some classes are harder due to imbalance and visual similarity.
-- The `disgust` class performs poorly in the final test evaluation, likely due to class imbalance and limited visual examples.
+- `fear` and `sad` remain relatively challenging in the final test evaluation.
 - Haar Cascade face detection is simple and may fail on low-resolution or non-frontal faces.
 - Softmax confidence is not a fully calibrated probability.
 - The project focuses on building a complete applied AI pipeline rather than achieving state-of-the-art performance.
@@ -617,9 +526,9 @@ Possible future improvements include:
 
 - use a stronger face detector
 - add face alignment
-- train for more epochs
-- tune learning rate and batch size
-- improve class imbalance handling
+- tune learning rate and batch size further
+- try stronger backbones
+- improve class imbalance handling further
 - add model selection in the Streamlit interface
 - deploy the Streamlit demo online
 - extend the project to webcam-based real-time prediction
@@ -629,6 +538,8 @@ Possible future improvements include:
 
 ## Project Status
 
-Version 1.1 completed.
+Version 1.2 completed.
 
 The project now supports a complete facial expression recognition workflow from dataset loading to model training, validation-based model selection, final test evaluation, robust prediction, face crop preprocessing, web demo, and automated tests.
+
+Version 1.2 adds a reproducible training pipeline with command-line configuration, automatic CPU/CUDA device selection, class weights, learning rate scheduling, early stopping, GPU training, improved final test performance, and expanded automated tests.
