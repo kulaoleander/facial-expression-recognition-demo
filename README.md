@@ -1,16 +1,43 @@
 # Facial Expression Recognition Demo
 
-An end-to-end deep learning and computer vision project for facial expression recognition.
+An end-to-end deep learning and computer vision project for classifying facial expressions from face images.
 
-This project predicts one of seven facial expressions from face images and includes a complete AI application pipeline: dataset inspection, PyTorch data loading, CNN baselines, transfer learning with ResNet18, configurable training, class imbalance handling, learning rate scheduling, early stopping, final test evaluation, model saving/loading, single-image prediction, OpenCV face detection, Streamlit demo, and pytest-based automated tests.
+The project covers dataset inspection, PyTorch data loading, CNN baselines, transfer learning with ResNet18, configurable training, class-imbalance handling, evaluation, model saving/loading, single-image prediction, OpenCV face detection, a Streamlit demo, and pytest-based automated tests.
 
-The goal of this project is not to claim state-of-the-art performance, but to build a complete, explainable, reproducible AI application that can be shown on GitHub, discussed in interviews, and extended into real-time computer vision applications.
+The goal is not to claim state-of-the-art performance. The goal is to demonstrate a complete, explainable, and reproducible applied-AI workflow.
+
+---
+
+## Key Results
+
+The final model is a ResNet18 initialized with ImageNet-pretrained weights and then fine-tuned for seven-class facial-expression recognition.
+
+| Metric | Value |
+|---|---:|
+| Test samples | 7,178 |
+| Test accuracy | 0.6257 |
+| Macro F1-score | 0.5996 |
+| Weighted F1-score | 0.6224 |
+
+Per-class accuracy:
+
+| Class | Accuracy |
+|---|---:|
+| angry | 0.5532 |
+| disgust | 0.7027 |
+| fear | 0.3701 |
+| happy | 0.8005 |
+| neutral | 0.6667 |
+| sad | 0.4747 |
+| surprise | 0.8063 |
+
+The strongest classes were `happy` and `surprise`. The most difficult classes were `fear` and `sad`, which is consistent with the ambiguity, visual similarity, class imbalance, and low resolution of FER2013-style images.
 
 ---
 
 ## Project Overview
 
-The project classifies facial expressions into seven categories:
+The model predicts one of seven facial-expression classes:
 
 - angry
 - disgust
@@ -28,48 +55,40 @@ grayscale image
 tensor shape: [batch_size, 1, 48, 48]
 ```
 
-Model output format:
+Model output:
 
 ```text
 logits shape: [batch_size, 7]
 ```
 
-The project started with a simple CNN baseline and was gradually improved with validation/test split, data augmentation, ImprovedCNN, transfer learning with ResNet18, robust prediction outputs, OpenCV-based face crop support, final test set evaluation, and a more reproducible training pipeline.
-
-Version 1.2 upgrades the training workflow with command-line training configuration, automatic CPU/CUDA device selection, class weights for imbalanced classes, learning rate scheduling, early stopping, GPU training, and expanded pytest coverage.
+The project started with a SimpleCNN baseline and was gradually improved through validation/test separation, data augmentation, an ImprovedCNN, ResNet18 transfer learning, class weights, learning-rate scheduling, early stopping, final test evaluation, OpenCV face cropping, and a Streamlit interface.
 
 ---
 
 ## Main Features
 
-- FER2013-style dataset structure inspection
+- FER2013-style dataset inspection
 - PyTorch `ImageFolder` data loading
-- Train / validation / test split
-- Data augmentation for training data
-- SimpleCNN baseline model
+- train / validation / test split
+- training-time data augmentation
+- SimpleCNN baseline
 - ImprovedCNN with BatchNorm and Dropout
-- ResNet18 transfer learning model
-- Configurable command-line training script
-- Automatic CPU/CUDA device selection
-- Class weights for imbalanced training data
-- Learning rate scheduler support
-- Early stopping support
-- Training loop with `CrossEntropyLoss` and Adam optimizer
-- Validation accuracy tracking
-- Best model checkpoint saving
-- Final test set evaluation
-- Training configuration saved as JSON
-- Training history saved as JSON
-- Training curves saved as PNG
-- Experiment comparison logging as CSV
-- Detailed evaluation with classification report and confusion matrix
-- Single-image prediction
-- Top-3 prediction probabilities
-- Low-confidence warning
+- ResNet18 transfer learning
+- configurable command-line training
+- automatic CPU/CUDA device selection
+- class weights for imbalanced data
+- learning-rate scheduler support
+- early stopping
+- best-checkpoint saving
+- final held-out test evaluation
+- classification report and confusion matrix
+- single-image prediction
+- top-3 prediction probabilities
+- low-confidence warning
 - OpenCV Haar Cascade face detection
-- Largest face crop with fallback to original image
+- largest-face crop with fallback behavior
 - Streamlit web demo
-- Automated tests with pytest
+- pytest-based automated tests
 
 ---
 
@@ -91,9 +110,7 @@ Version 1.2 upgrades the training workflow with command-line training configurat
 
 ## Dataset
 
-This project is designed for a FER2013-style facial expression dataset organized as image folders.
-
-Expected local dataset structure:
+The project expects a FER2013-style dataset organized as image folders:
 
 ```text
 data/raw/
@@ -115,7 +132,7 @@ data/raw/
     └── surprise/
 ```
 
-The dataset is not committed to GitHub because image datasets are usually large.
+The dataset is not committed to this repository because image datasets are usually large and may have separate licensing or access requirements.
 
 ---
 
@@ -141,6 +158,56 @@ Run the environment check:
 ```powershell
 python -m src.environment_check
 ```
+
+---
+
+## Model Weights
+
+This project uses **two different types of ResNet18 weights**.
+
+### 1. ImageNet-pretrained initialization
+
+When training with `--pretrained`, torchvision downloads general ImageNet-pretrained ResNet18 weights automatically and uses them as the starting point for transfer learning.
+
+These are not the final facial-expression model weights.
+
+### 2. Fine-tuned facial-expression checkpoint
+
+After training on the facial-expression dataset, the project saves the best fine-tuned checkpoint to:
+
+```text
+outputs/models/resnet18.pth
+```
+
+This fine-tuned checkpoint contains the model parameters learned specifically for this seven-class facial-expression task. It is required by:
+
+- `python -m src.predict`
+- `python -m src.final_test_evaluation`
+- `streamlit run app/streamlit_app.py`
+
+The fine-tuned `resnet18.pth` file is **not currently committed to this GitHub repository**.
+
+To run inference or the Streamlit demo, use one of the following options.
+
+### Option A: Train the model
+
+Run the training command below. The best checkpoint will be generated automatically at `outputs/models/resnet18.pth`.
+
+```powershell
+python -m src.train --model resnet18 --epochs 50 --batch-size 32 --lr 0.001 --pretrained --use-augmentation --class-weights --scheduler reduce_on_plateau --scheduler-patience 4 --scheduler-factor 0.5 --early-stopping-patience 8 --device auto
+```
+
+### Option B: Use an existing local checkpoint
+
+Copy a compatible fine-tuned checkpoint into:
+
+```text
+outputs/models/resnet18.pth
+```
+
+Without this file, training and tests that do not require the final checkpoint can still run, but prediction, final evaluation, and the Streamlit demo cannot load the trained model.
+
+A future release may provide the fine-tuned checkpoint as a separate downloadable artifact rather than storing the binary file directly in the Git repository.
 
 ---
 
@@ -177,15 +244,13 @@ Basic training command:
 python -m src.train
 ```
 
-The training script also supports configurable command-line arguments.
-
-Example formal ResNet18 training command:
+Example formal ResNet18 command:
 
 ```powershell
 python -m src.train --model resnet18 --epochs 50 --batch-size 32 --lr 0.001 --pretrained --use-augmentation --class-weights --scheduler reduce_on_plateau --scheduler-patience 4 --scheduler-factor 0.5 --early-stopping-patience 8 --device cuda
 ```
 
-Main training options:
+Main options:
 
 ```text
 --model simple_cnn | improved_cnn | resnet18
@@ -206,7 +271,7 @@ The formal v1.2 training run used:
 
 ```text
 Model: resnet18
-Pretrained weights: True
+Pretrained initialization: True
 Epochs: 50
 Batch size: 32
 Learning rate: 0.001
@@ -233,8 +298,6 @@ outputs/figures/training_curves.png
 
 ## Model Comparison
 
-A controlled experiment was run using the same validation split and training configuration where applicable.
-
 | Model / Version | Validation Accuracy |
 |---|---:|
 | SimpleCNN baseline | 0.4142 |
@@ -243,40 +306,27 @@ A controlled experiment was run using the same validation split and training con
 | Pretrained ResNet18, v1.1 short training | 0.5078 |
 | Pretrained ResNet18, v1.2 GPU training + class weights + scheduler | 0.6314 |
 
-The v1.2 pretrained ResNet18 model achieved the best validation accuracy in this project.
-
-This shows the value of transfer learning and training engineering: instead of learning visual features from scratch, the model reuses general image features learned from large-scale image data and fine-tunes them for facial expression recognition. The v1.2 training improvements also made the experiment more reproducible and improved minority-class handling.
+The v1.2 transfer-learning model achieved the best validation accuracy. This comparison demonstrates the value of reusing general visual features and then fine-tuning them for a task-specific dataset.
 
 ---
 
 ## Final Test Evaluation
 
-After selecting the best model based on validation accuracy, the v1.2 pretrained ResNet18 model was evaluated once on the held-out test set.
+Run:
 
-| Metric | Value |
-|---|---:|
-| Test samples | 7178 |
-| Test accuracy | 0.6257 |
-| Macro average F1-score | 0.5996 |
-| Weighted average F1-score | 0.6224 |
+```powershell
+python -m src.final_test_evaluation
+```
 
-Per-class accuracy:
+The script:
 
-| Class | Accuracy |
-|---|---:|
-| angry | 0.5532 |
-| disgust | 0.7027 |
-| fear | 0.3701 |
-| happy | 0.8005 |
-| neutral | 0.6667 |
-| sad | 0.4747 |
-| surprise | 0.8063 |
+- loads `outputs/models/resnet18.pth`
+- creates the held-out test DataLoader
+- calculates accuracy, macro F1, weighted F1, and per-class accuracy
+- saves final metrics as JSON
+- saves a confusion matrix as PNG
 
-Compared with the earlier v1.1 result, the v1.2 training run improved test accuracy from 0.5059 to 0.6257 and macro average F1-score from 0.3993 to 0.5996. The `disgust` class improved substantially after adding class weights, showing that class imbalance handling made the model pay more attention to minority classes.
-
-The final test result still shows that `fear` and `sad` remain relatively challenging classes, which is realistic for low-resolution FER2013-style facial expression recognition.
-
-The final test evaluation outputs are saved locally to:
+Generated files:
 
 ```text
 outputs/logs/final_test_metrics.json
@@ -285,32 +335,7 @@ outputs/figures/final_test_confusion_matrix.png
 
 ---
 
-## Final Test Evaluation Script
-
-Run:
-
-```powershell
-python -m src.final_test_evaluation
-```
-
-This script:
-
-- loads the default best model
-- creates the test DataLoader
-- evaluates the model on the held-out test set
-- calculates test accuracy, macro F1-score, weighted F1-score, per-class accuracy, and confusion matrix
-- saves the final test metrics to JSON
-- saves the final test confusion matrix as PNG
-
-The default best model is:
-
-```text
-outputs/models/resnet18.pth
-```
-
----
-
-## Single Image Prediction
+## Single-Image Prediction
 
 Run:
 
@@ -318,19 +343,17 @@ Run:
 python -m src.predict
 ```
 
-By default, prediction loads the ResNet18 model from `outputs/models/resnet18.pth`.
-
-The prediction output includes:
+Prediction output includes:
 
 - predicted class
 - confidence
 - top-3 predictions
 - low-confidence flag
-- face crop status
+- face-crop status
 - number of detected faces
 - selected face box
 
-If no face is detected, the system falls back to the original image instead of crashing.
+If no face is detected, the pipeline falls back to the original image instead of crashing.
 
 ---
 
@@ -342,27 +365,26 @@ Run:
 streamlit run app/streamlit_app.py
 ```
 
-By default, the Streamlit demo uses the ResNet18 model from `outputs/models/resnet18.pth`.
-
-The web app allows users to:
+The app allows users to:
 
 - upload an image
 - preview the uploaded image
-- enable or disable face detection / face crop
-- see whether a face was detected
+- enable or disable face detection and cropping
 - view the image used for prediction
-- run emotion prediction
-- see predicted emotion and confidence
-- see top-3 prediction probabilities
-- see a low-confidence warning when appropriate
+- run expression prediction
+- view the predicted expression and confidence
+- view top-3 probabilities
+- receive a low-confidence warning
+
+The demo requires the fine-tuned checkpoint at:
+
+```text
+outputs/models/resnet18.pth
+```
 
 ---
 
 ## Face Detection and Face Crop
-
-The project uses OpenCV Haar Cascade face detection.
-
-The face crop pipeline is:
 
 ```text
 Uploaded image
@@ -371,7 +393,7 @@ OpenCV face detection
 ↓
 Select largest detected face
 ↓
-Add padding around face box
+Add padding around the face box
 ↓
 Crop face region
 ↓
@@ -390,54 +412,21 @@ Use original image as fallback
 Continue prediction
 ```
 
-This makes the demo more robust for real-world uploaded images.
-
 ---
 
 ## Run Tests
-
-Run all tests:
 
 ```powershell
 python -m pytest
 ```
 
-Current local test result:
+Current local result:
 
 ```text
 106 passed, 1 skipped
 ```
 
-Current test coverage includes:
-
-- environment check
-- dataset inspection
-- DataLoader output shape and split logic
-- data augmentation behavior
-- model output shape
-- SimpleCNN / ImprovedCNN / ResNet18 model creation
-- configurable training argument parsing
-- automatic CPU/CUDA device selection
-- class weight calculation
-- weighted loss function creation
-- learning rate scheduler creation
-- early stopping logic
-- training loop
-- model saving
-- model loading
-- ResNet18 loading consistency
-- training configuration saving
-- training history saving
-- training curve saving
-- experiment summary saving
-- evaluation accuracy
-- detailed evaluation metrics
-- final test evaluation metrics
-- single-image prediction
-- top-k prediction logic
-- low-confidence logic
-- OpenCV face detection utilities
-- face crop fallback behavior
+The tests cover dataset loading, preprocessing, model creation, training configuration, device selection, class weights, schedulers, early stopping, model saving/loading, evaluation metrics, prediction behavior, OpenCV utilities, and fallback behavior.
 
 ---
 
@@ -448,91 +437,52 @@ Dataset
 ↓
 Dataset inspection
 ↓
-DataLoader
-↓
-Train / validation / test split
+DataLoader and data split
 ↓
 Data augmentation
 ↓
-CNN baseline
+CNN baselines
 ↓
-Improved CNN
+ResNet18 transfer learning
 ↓
-Transfer learning with ResNet18
+Class weights, scheduler, and early stopping
 ↓
-Configurable training
+Best checkpoint saving
 ↓
-Class weights for imbalance handling
-↓
-Learning rate scheduling
-↓
-Early stopping support
-↓
-Best model checkpoint saving
-↓
-Final test evaluation
+Final held-out test evaluation
 ↓
 Single-image prediction
 ↓
-Top-3 prediction and low-confidence warning
+OpenCV face detection and crop
 ↓
-OpenCV face detection and face crop
-↓
-Streamlit web demo
+Streamlit demo
 ↓
 Automated tests
 ```
 
 ---
 
-## What I Learned
-
-This project helped me practice:
-
-- building a complete PyTorch image classification pipeline
-- using train / validation / test split correctly
-- comparing models with controlled experiments
-- using transfer learning with ResNet18
-- handling class imbalance with class weights
-- using learning rate scheduling during training
-- using early stopping to make longer training safer
-- evaluating classification models beyond overall accuracy
-- using a held-out test set for final model evaluation
-- building a simple AI web demo with Streamlit
-- adding OpenCV preprocessing before model inference
-- writing pytest tests for machine learning project components
-- keeping training, evaluation, prediction, and demo model loading consistent
-- organizing a project for GitHub and interview discussion
-
----
-
 ## Limitations
 
-Current limitations:
-
 - FER2013-style 48x48 grayscale images are low-resolution.
-- Facial expression labels can be ambiguous.
-- Some classes are harder due to imbalance and visual similarity.
-- `fear` and `sad` remain relatively challenging in the final test evaluation.
-- Haar Cascade face detection is simple and may fail on low-resolution or non-frontal faces.
+- Facial-expression labels can be ambiguous.
+- Some classes are difficult because of imbalance and visual similarity.
+- `fear` and `sad` remain challenging in the final test results.
+- Haar Cascade may fail on low-resolution, rotated, or non-frontal faces.
 - Softmax confidence is not a fully calibrated probability.
-- The project focuses on building a complete applied AI pipeline rather than achieving state-of-the-art performance.
+- The fine-tuned checkpoint is not currently distributed through this repository.
+- The project demonstrates an applied-AI pipeline rather than state-of-the-art performance.
 
 ---
 
 ## Possible Future Improvements
 
-Possible future improvements include:
-
+- publish the fine-tuned checkpoint as a GitHub Release or model artifact
 - use a stronger face detector
 - add face alignment
-- tune learning rate and batch size further
-- try stronger backbones
-- improve class imbalance handling further
-- add model selection in the Streamlit interface
-- deploy the Streamlit demo online
-- extend the project to webcam-based real-time prediction
-- combine expression recognition with attention-state estimation
+- improve model calibration
+- improve handling of difficult and minority classes
+- add an online hosted demo
 
 ---
 
@@ -540,6 +490,4 @@ Possible future improvements include:
 
 Version 1.2 completed.
 
-The project now supports a complete facial expression recognition workflow from dataset loading to model training, validation-based model selection, final test evaluation, robust prediction, face crop preprocessing, web demo, and automated tests.
-
-Version 1.2 adds a reproducible training pipeline with command-line configuration, automatic CPU/CUDA device selection, class weights, learning rate scheduling, early stopping, GPU training, improved final test performance, and expanded automated tests.
+The project supports a complete facial-expression-recognition workflow from dataset loading and model training to validation-based model selection, final test evaluation, prediction, face-crop preprocessing, a Streamlit demo, and automated tests.
