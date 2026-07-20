@@ -197,17 +197,15 @@ Run the training command below. The best checkpoint will be generated automatica
 python -m src.train --model resnet18 --epochs 50 --batch-size 32 --lr 0.001 --pretrained --use-augmentation --class-weights --scheduler reduce_on_plateau --scheduler-patience 4 --scheduler-factor 0.5 --early-stopping-patience 8 --device auto
 ```
 
-### Option B: Use an existing local checkpoint
+### Option B: Download the released checkpoint
 
-Copy a compatible fine-tuned checkpoint into:
+Download the fine-tuned [`resnet18.pth`](https://github.com/kulaoleander/facial-expression-recognition-demo/releases/download/v1.2-model/resnet18.pth) checkpoint from the GitHub Release, then place it at:
 
 ```text
 outputs/models/resnet18.pth
 ```
 
 Without this file, training and tests that do not require the final checkpoint can still run, but prediction, final evaluation, and the Streamlit demo cannot load the trained model.
-
-A future release may provide the fine-tuned checkpoint as a separate downloadable artifact rather than storing the binary file directly in the Git repository.
 
 ---
 
